@@ -276,9 +276,17 @@
             <div id="doc-transcript" class="doc-panel hidden">
               <p id="soap-transcript" class="text-slate-600 text-sm whitespace-pre-wrap bg-slate-50 p-4 rounded"></p>
               <audio id="soap-audio" controls class="hidden w-full mt-4"></audio>
-              <button onclick="emailTranscript()"
-                class="mt-4 px-5 py-2 bg-slate-700 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors text-sm">
-                ✉️ Email Transcript
+            </div>
+
+            <!-- Per-document actions (apply to whichever tab is open) -->
+            <div class="mt-5 pt-4 border-t border-slate-100 flex items-center gap-3 flex-wrap">
+              <button onclick="emailDocument(activeDocTab)"
+                class="px-5 py-2 bg-slate-700 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors text-sm">
+                ✉️ Email <span id="email-btn-label">Consult Letter</span>
+              </button>
+              <button id="copy-btn" onclick="copyDocument(activeDocTab)"
+                class="px-5 py-2 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition-colors text-sm">
+                Copy
               </button>
             </div>
 

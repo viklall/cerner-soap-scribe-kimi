@@ -59,18 +59,81 @@ function startNewEncounter() {
 }
 
 // ── Document tabs ──
+let activeDocTab = 'consult';
+
 function showDocTab(tab) {
+  activeDocTab = tab;
   ['consult', 'soap', 'avs', 'transcript'].forEach((t) => {
     document.getElementById('doc-' + t).classList.toggle('hidden', t !== tab);
     document.getElementById('tab-' + t).classList.toggle('active', t === tab);
   });
+  document.getElementById('email-btn-label').textContent = DOC_TITLES[tab];
 }
 
-function emailTranscript() {
-  const name = (currentPatient && currentPatient.name) || 'patient';
-  const subject = 'Encounter transcript - ' + name;
-  const body = currentTranscript || '(no transcript available)';
+// ── Email a generated document ──
+function patientLabel() {
+  if (currentPatient && currentPatient.name) return currentPatient.name;
+  const guessed = extractDisplayName(currentTranscript);
+  return guessed || 'patient';
+}
+
+function formatDocument(type) {
+  if (type === 'transcript') {
+    return currentTranscript || '(no transcript available)';
+  }
+
+  if (type === 'soap') {
+    if (!currentSoap) return '(no SOAP note available)';
+    const s = currentSoap;
+    return ['SUBJECTIVE:', s.Subjective, '', 'OBJECTIVE:', s.Objective, '', 'ASSESSMENT:', s.Assessment, '', 'PLAN:', s.Plan]
+      .join('\n') +
+      ((currentConsultLetter && currentConsultLetter.footer) ? '\n\n' + currentConsultLetter.footer : '');
+  }
+
+  if (type === 'consult') {
+    if (!currentConsultLetter) return '(no consult letter available)';
+    const l = currentConsultLetter;
+    const body = CONSULT_SECTIONS
+      .filter((sec) => l[sec])
+      .map((sec) => sec + ':\n' + l[sec])
+      .join('\n\n');
+    return body + (l.footer ? '\n\n' + l.footer : '');
+  }
+
+  if (type === 'avs') {
+    if (!currentAvs) return '(no after-visit summary available)';
+    const a = currentAvs;
+    return [a.greeting, '', 'WHAT WE DISCUSSED', a.whatWeDiscussed, '', 'WHAT TO DO NEXT', a.whatToDo]
+      .join('\n') + (a.footer ? '\n\n' + a.footer : '');
+  }
+
+  return '';
+}
+
+const DOC_TITLES = {
+  consult: 'Consult Letter',
+  soap: 'SOAP Note',
+  avs: 'After-Visit Summary',
+  transcript: 'Encounter Transcript'
+};
+
+function emailDocument(type) {
+  const subject = DOC_TITLES[type] + ' - ' + patientLabel();
+  const body = formatDocument(type);
   window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+}
+
+function copyDocument(type) {
+  const text = formatDocument(type);
+  navigator.clipboard.writeText(text).then(
+    () => {
+      const btn = document.getElementById('copy-btn');
+      if (!btn) return;
+      btn.textContent = '✓ Copied';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    },
+    () => alert('Copy failed - your browser blocked clipboard access.')
+  );
 }
 
 // ── Visit History ──
