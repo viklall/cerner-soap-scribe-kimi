@@ -197,11 +197,31 @@ const CLINICAL_FINDINGS = [
   { keys: ['dizzy', 'dizziness'], phrase: 'dizziness', category: 'dizziness' },
   { keys: ['nausea'], phrase: 'nausea', category: 'gi' },
   { keys: ['vomit', 'vomiting'], phrase: 'vomiting', category: 'gi' },
+  { keys: ['heartburn', 'acid reflux', 'gerd'], phrase: 'heartburn/reflux symptoms', category: 'gerd' },
   { keys: ['high blood pressure', 'hypertension', 'elevated bp'], phrase: 'elevated blood pressure', category: 'hypertension' },
   { keys: ['blood pressure', ' bp '], phrase: 'blood pressure concerns', category: 'bp_general' },
   { keys: ['diabetes'], phrase: 'diabetes', category: 'endocrine' },
+  { keys: ['depression', 'depressed mood'], phrase: 'depressed mood', category: 'depression' },
+  { keys: ['anxiety', 'anxious'], phrase: 'anxiety', category: 'anxiety' },
+  { keys: ['insomnia', 'trouble sleeping', "can't sleep", 'difficulty sleeping'], phrase: 'sleep difficulty', category: 'insomnia' },
+  { keys: ['fatigue', 'tired all the time', 'low energy'], phrase: 'fatigue', category: 'fatigue' },
+  { keys: ['back pain'], phrase: 'back pain', category: 'back_pain' },
+  { keys: ['joint pain'], phrase: 'joint pain', category: 'joint_pain' },
+  { keys: ['ear pain', 'earache'], phrase: 'ear pain', category: 'ear_pain' },
+  { keys: ['rash'], phrase: 'skin rash', category: 'rash' },
+  { keys: ['urinary', 'burning urination', 'painful urination'], phrase: 'urinary symptoms', category: 'uti' },
   { keys: ['pain', 'hurt'], phrase: 'pain', category: 'pain' }
 ];
+
+// When the key on the left is found, drop the vaguer/overlapping category on the right
+// (e.g. "chest pain" already covers "pain" - listing both would be redundant).
+const SUPPRESSES = {
+  hypertension: ['bp_general'],
+  cardiac: ['pain'],
+  back_pain: ['pain'],
+  joint_pain: ['pain'],
+  ear_pain: ['pain']
+};
 
 const ASSESSMENT_BY_CATEGORY = {
   cardiac: 'Reported chest pain warrants prompt evaluation to rule out a cardiac cause.',
@@ -210,9 +230,19 @@ const ASSESSMENT_BY_CATEGORY = {
   headache: 'Headache reported; further evaluation warranted if severe, sudden-onset, or accompanied by other neurological symptoms.',
   dizziness: 'Dizziness reported; further evaluation may be warranted.',
   gi: 'Gastrointestinal symptoms reported.',
+  gerd: 'Reflux/heartburn symptoms reported.',
   hypertension: 'Hypertension noted; blood pressure management indicated.',
   bp_general: 'Blood pressure concern reported; vitals to be reviewed and hypertension evaluated if elevated.',
   endocrine: 'Diabetes reported; glycemic control to be reviewed.',
+  depression: 'Depressed mood reported; screen for severity and safety (e.g. suicidal ideation) as clinically indicated.',
+  anxiety: 'Anxiety symptoms reported; further evaluation may be warranted.',
+  insomnia: 'Sleep difficulty reported.',
+  fatigue: 'Fatigue reported; broad differential to be considered by provider.',
+  back_pain: 'Back pain reported.',
+  joint_pain: 'Joint pain reported.',
+  ear_pain: 'Ear pain reported.',
+  rash: 'Skin rash reported.',
+  uti: 'Urinary symptoms reported; possible urinary tract infection.',
   pain: 'Pain reported; further characterization needed to guide management.'
 };
 
@@ -223,9 +253,19 @@ const PLAN_BY_CATEGORY = {
   headache: 'Recommend analgesics (e.g. acetaminophen/ibuprofen) as appropriate; reassess if headache is severe, sudden-onset, or worsening.',
   dizziness: 'Evaluate for underlying cause (e.g. orthostatic hypotension, inner ear); advise caution with activities requiring balance until resolved.',
   gi: 'Maintain hydration; antiemetic as needed; reassess if symptoms persist beyond 48 hours.',
+  gerd: 'Recommend dietary modification and OTC acid reducer as appropriate; further workup if persistent.',
   hypertension: 'Monitor blood pressure; consider antihypertensive therapy per provider assessment.',
   bp_general: 'Check and document blood pressure; evaluate for hypertension if elevated.',
   endocrine: 'Monitor blood glucose; review current diabetes management plan.',
+  depression: 'Administer depression screening (e.g. PHQ-9) as appropriate; assess safety and consider behavioral health referral.',
+  anxiety: 'Consider anxiety screening (e.g. GAD-7); discuss coping strategies and behavioral health referral if indicated.',
+  insomnia: 'Review sleep hygiene; consider further workup if persistent.',
+  fatigue: 'Consider basic labs (e.g. CBC, TSH) if fatigue is persistent or unexplained.',
+  back_pain: 'Recommend activity modification and analgesics as appropriate; evaluate for red-flag symptoms (numbness, weakness, bowel/bladder changes).',
+  joint_pain: 'Consider NSAIDs as appropriate; further evaluation if persistent or associated with swelling.',
+  ear_pain: 'Ear exam recommended; consider treatment for otitis media/externa if indicated.',
+  rash: 'Visual skin exam recommended; consider allergy or dermatologic evaluation if persistent or worsening.',
+  uti: 'Obtain urinalysis; consider empiric treatment per provider assessment.',
   pain: 'Analgesics as appropriate; identify pain source for targeted treatment.'
 };
 
@@ -236,12 +276,15 @@ function joinWithAnd(items) {
 }
 
 // ── Generate SOAP ──
-function generateSOAP(transcript, visitId, source) {
+// patientName should come from the verified chart/visit context (e.g. Cerner FHIR lookup),
+// never parsed from the transcript itself - voice transcription is unreliable for proper
+// nouns and misidentifying a patient in a real EHR writeback is a genuine safety risk.
+function generateSOAP(transcript, visitId, source, patientName) {
   const date = new Date().toISOString().split('T')[0];
 
   if (!transcript || transcript.length < 10) {
     return {
-      Subjective: 'Patient presents for visit on ' + date + '. Chief complaint documented.',
+      Subjective: (patientName ? 'Patient: ' + patientName + '. ' : '') + 'Patient presents for visit on ' + date + '. Chief complaint documented.',
       Objective: 'Vital signs and physical exam findings to be documented.',
       Assessment: 'Clinical assessment pending provider review.',
       Plan: '1. Review visit documentation\n2. Verify findings\n3. Follow up as indicated',
@@ -252,14 +295,6 @@ function generateSOAP(transcript, visitId, source) {
   }
 
   const lower = transcript.toLowerCase();
-
-  let patientName = '';
-  const nameIdx = lower.indexOf('patient name is');
-  if (nameIdx !== -1) {
-    const afterName = transcript.slice(nameIdx + 'patient name is'.length);
-    const nameCapture = afterName.match(/^\s*((?:[A-Z][A-Za-z'-]*\s*)+)/);
-    if (nameCapture) patientName = nameCapture[1].trim();
-  }
 
   const foundPhrases = [];
   const foundCategories = [];
@@ -273,17 +308,19 @@ function generateSOAP(transcript, visitId, source) {
       matchedKeys.push.apply(matchedKeys, finding.keys);
     }
   });
-  // A confirmed 'hypertension' match makes the vaguer 'bp_general' redundant.
-  if (foundCategories.indexOf('hypertension') !== -1) {
-    var bpGeneralIdx = foundCategories.indexOf('bp_general');
-    if (bpGeneralIdx !== -1) {
-      foundCategories.splice(bpGeneralIdx, 1);
-      foundPhrases.splice(bpGeneralIdx, 1);
-    }
-  }
+  Object.keys(SUPPRESSES).forEach(function (winner) {
+    if (foundCategories.indexOf(winner) === -1) return;
+    SUPPRESSES[winner].forEach(function (loser) {
+      var idx = foundCategories.indexOf(loser);
+      if (idx !== -1) {
+        foundCategories.splice(idx, 1);
+        foundPhrases.splice(idx, 1);
+      }
+    });
+  });
 
   let subjective = '';
-  if (patientName) subjective += 'Patient name: ' + patientName + '. ';
+  if (patientName) subjective += 'Patient: ' + patientName + '. ';
   subjective += foundPhrases.length
     ? 'Patient reports ' + joinWithAnd(foundPhrases) + '. '
     : 'Patient presents with concerns as documented in transcript. ';
@@ -393,6 +430,7 @@ routes['POST /api/visits'] = async (req, res) => {
 
   const audioPart = parts.find(p => p.name === 'audio' && p.filename);
   const transcriptPart = parts.find(p => p.name === 'transcript');
+  const patientNamePart = parts.find(p => p.name === 'patientName');
 
   if (!audioPart) {
     res.writeHead(400);
@@ -421,7 +459,8 @@ routes['POST /api/visits'] = async (req, res) => {
     }
   }
 
-  const soap = generateSOAP(transcript, visitId, source);
+  const patientName = patientNamePart ? patientNamePart.data.toString().trim() : '';
+  const soap = generateSOAP(transcript, visitId, source, patientName);
 
   return {
     visitId: visitId,

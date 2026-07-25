@@ -7,6 +7,7 @@ let currentSoap = null;
 let currentVisitId = null;
 let recognition = null;
 let transcriptBuffer = '';
+let currentPatient = null;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -135,6 +136,7 @@ async function fetchPatientData(sessionId) {
 
     if (data.error) return;
 
+    currentPatient = data;
     document.getElementById('patient-panel').classList.remove('hidden');
     document.getElementById('pt-name').textContent = data.name || 'Unknown';
     document.getElementById('pt-dob').textContent = data.birthDate ? `DOB: ${data.birthDate}` : '';
@@ -267,6 +269,9 @@ async function uploadAudio() {
   formData.append('audio', audioBlob, 'visit-recording.webm');
   if (transcriptBuffer.trim()) {
     formData.append('transcript', transcriptBuffer.trim());
+  }
+  if (currentPatient && currentPatient.name) {
+    formData.append('patientName', currentPatient.name);
   }
 
   document.getElementById('loading').classList.remove('hidden');
