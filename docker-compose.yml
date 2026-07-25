@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  scribe:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - KIMI_TRANSCRIPTION_URL=http://transcription:8000
+      - CERNER_CLIENT_ID=c52afd29-60bd-4ddf-800f-b175bd91be59
+      - CERNER_TENANT_ID=ec2458f2-1e24-41c8-b71b-0e701af7583d
+      - CERNER_REDIRECT_URI=http://localhost:8080/callback
+      - CERNER_MOCK_MODE=true
+      # Add these for real backends:
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # - AWS_REGION=${AWS_REGION}
+      # - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+    depends_on:
+      - transcription
+    networks:
+      - scribe-net
+
+  transcription:
+    build: ./transcription-service
+    ports:
+      - "8000:8000"
+    environment:
+      - KIMI_PORT=8000
+      - KIMI_DEVICE=auto
+      - KIMI_MODEL_ID=moonshotai/Kimi-Audio-7B-Instruct
+    volumes:
+      - kimi-cache:/app/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - scribe-net
+
+volumes:
+  kimi-cache:
+
+networks:
+  scribe-net:
+    driver: bridge
