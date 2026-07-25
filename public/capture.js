@@ -5,10 +5,98 @@ let recordStartTime = null;
 let timerInterval = null;
 let currentSoap = null;
 let currentVisitId = null;
+let recognition = null;
+let transcriptBuffer = '';
 
-// ── Check Cerner status on load ──
-document.addEventListener('DOMContentLoaded', checkCernerStatus);
+// ── Init ──
+document.addEventListener('DOMContentLoaded', () => {
+  checkBackendStatus();
+  checkCernerStatus();
+  initSpeechRecognition();
+});
 
+// ── Backend Status ──
+async function checkBackendStatus() {
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    const el = document.getElementById('backend-status');
+    const parts = [];
+    if (data.awsConfigured) parts.push('AWS');
+    if (data.openaiConfigured) parts.push('OpenAI');
+    if (data.mockMode) parts.push('Mock');
+    el.textContent = parts.length ? parts.join(' · ') : 'No transcription backend';
+  } catch (e) {}
+}
+
+// ── Web Speech API ──
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.log('Web Speech API not supported');
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        final += transcript + ' ';
+      } else {
+        interim += transcript;
+      }
+    }
+    if (final) {
+      transcriptBuffer += final;
+      appendLiveTranscript(final, true);
+    }
+    if (interim) {
+      appendLiveTranscript(interim, false);
+    }
+  };
+
+  recognition.onerror = (e) => {
+    console.error('Speech recognition error:', e.error);
+  };
+}
+
+function appendLiveTranscript(text, isFinal) {
+  const box = document.getElementById('live-transcript-box');
+  const el = document.getElementById('live-transcript');
+  box.classList.remove('hidden');
+
+  if (isFinal) {
+    const span = document.createElement('span');
+    span.className = 'transcript-line';
+    span.textContent = text + ' ';
+    el.appendChild(span);
+  } else {
+    // Remove previous interim
+    const interim = el.querySelector('.interim');
+    if (interim) interim.remove();
+    const span = document.createElement('span');
+    span.className = 'interim text-slate-400';
+    span.textContent = text;
+    el.appendChild(span);
+  }
+
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLiveTranscript() {
+  transcriptBuffer = '';
+  document.getElementById('live-transcript').innerHTML = '';
+  document.getElementById('live-transcript-box').classList.add('hidden');
+}
+
+// ── Cerner Status ──
 async function checkCernerStatus() {
   const sessionId = localStorage.getItem('cernerSession');
   if (!sessionId) return;
@@ -17,6 +105,7 @@ async function checkCernerStatus() {
     const res = await fetch(`/api/cerner/status?session=${sessionId}`);
     const data = await res.json();
     updateCernerUI(data);
+    if (data.connected) fetchPatientData(sessionId);
   } catch (e) {
     console.error('Cerner status check failed:', e);
   }
@@ -32,6 +121,31 @@ function updateCernerUI(data) {
   } else {
     dot.className = 'w-2 h-2 rounded-full bg-slate-400';
     text.textContent = 'Cerner: Not connected';
+    document.getElementById('patient-panel').classList.add('hidden');
+  }
+}
+
+// ── Fetch Patient Demographics ──
+async function fetchPatientData(sessionId) {
+  try {
+    const res = await fetch(`/api/patient?session=${sessionId}`);
+    const data = await res.json();
+
+    if (data.error) return;
+
+    document.getElementById('patient-panel').classList.remove('hidden');
+    document.getElementById('pt-name').textContent = data.name || 'Unknown';
+    document.getElementById('pt-dob').textContent = data.birthDate ? `DOB: ${data.birthDate}` : '';
+    document.getElementById('pt-gender').textContent = (data.gender || '').toUpperCase();
+    document.getElementById('pt-phone').textContent = data.phone || '';
+    document.getElementById('pt-mrn').textContent = `MRN: ${data.id || 'N/A'}`;
+    document.getElementById('pt-address').textContent = data.address || '';
+
+    if (data.mock) {
+      document.getElementById('pt-mock-badge').classList.remove('hidden');
+    }
+  } catch (e) {
+    console.error('Patient fetch failed:', e);
   }
 }
 
@@ -48,7 +162,6 @@ function connectCerner() {
   );
 }
 
-// ── Listen for OAuth success message ──
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'cerner-connected') {
     checkCernerStatus();
@@ -81,13 +194,16 @@ async function startRecording() {
       preview.src = url;
       preview.classList.remove('hidden');
       document.getElementById('upload-btn').disabled = false;
-
-      // Stop all tracks
       stream.getTracks().forEach(t => t.stop());
     };
 
-    mediaRecorder.start(100); // collect every 100ms
+    mediaRecorder.start(100);
     recordStartTime = Date.now();
+
+    // Start speech recognition
+    if (recognition) {
+      try { recognition.start(); } catch(e) {}
+    }
 
     // UI updates
     document.getElementById('mic-icon').classList.add('hidden');
@@ -99,8 +215,8 @@ async function startRecording() {
     document.getElementById('timer').classList.remove('hidden');
     document.getElementById('audio-preview').classList.add('hidden');
     document.getElementById('upload-btn').disabled = true;
+    clearLiveTranscript();
 
-    // Timer
     timerInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
       const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
@@ -118,7 +234,10 @@ function stopRecording() {
   mediaRecorder.stop();
   clearInterval(timerInterval);
 
-  // UI reset
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+  }
+
   document.getElementById('mic-icon').classList.remove('hidden');
   document.getElementById('stop-icon').classList.add('hidden');
   document.getElementById('pulse-ring').classList.add('hidden');
@@ -133,6 +252,9 @@ async function uploadAudio() {
 
   const formData = new FormData();
   formData.append('audio', audioBlob, 'visit-recording.webm');
+  if (transcriptBuffer.trim()) {
+    formData.append('transcript', transcriptBuffer.trim());
+  }
 
   document.getElementById('loading').classList.remove('hidden');
   document.getElementById('soap-section').classList.add('hidden');
@@ -145,14 +267,12 @@ async function uploadAudio() {
 
     const data = await res.json();
 
-    if (data.error) {
-      throw new Error(data.error);
-    }
+    if (data.error) throw new Error(data.error);
 
     currentSoap = data.soap;
     currentVisitId = data.visitId;
 
-    displaySOAP(data.soap, data.awsConfigured, data.hint);
+    displaySOAP(data.soap, data.source, data.hint);
 
   } catch (err) {
     alert('Processing failed: ' + err.message);
@@ -163,7 +283,7 @@ async function uploadAudio() {
 }
 
 // ── Display SOAP ──
-function displaySOAP(soap, awsConfigured, hint) {
+function displaySOAP(soap, source, hint) {
   document.getElementById('soap-section').classList.remove('hidden');
   document.getElementById('soap-subjective').textContent = soap.Subjective || '(empty)';
   document.getElementById('soap-objective').textContent = soap.Objective || '(empty)';
@@ -172,18 +292,33 @@ function displaySOAP(soap, awsConfigured, hint) {
   document.getElementById('soap-transcript').textContent = soap.transcript || '(no transcript)';
 
   const modeBadge = document.getElementById('soap-mode');
-  if (soap.mode === 'aws-healthscribe') {
+  const sourceLabel = document.getElementById('soap-source');
+
+  sourceLabel.textContent = source ? `Source: ${source}` : '';
+
+  if (source === 'aws-healthscribe') {
     modeBadge.textContent = 'AWS HealthScribe';
     modeBadge.className = 'text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700 font-medium';
+  } else if (source === 'openai-whisper') {
+    modeBadge.textContent = 'OpenAI Whisper';
+    modeBadge.className = 'text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 font-medium';
+  } else if (source === 'browser-speech') {
+    modeBadge.textContent = 'Browser Speech';
+    modeBadge.className = 'text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-700 font-medium';
   } else {
     modeBadge.textContent = 'Stub Mode';
     modeBadge.className = 'text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium';
-    if (hint) {
-      const hintEl = document.createElement('p');
+  }
+
+  if (hint) {
+    let hintEl = document.getElementById('soap-hint');
+    if (!hintEl) {
+      hintEl = document.createElement('p');
+      hintEl.id = 'soap-hint';
       hintEl.className = 'text-xs text-amber-600 mt-2';
-      hintEl.textContent = '💡 ' + hint;
       modeBadge.parentElement.appendChild(hintEl);
     }
+    hintEl.textContent = '💡 ' + hint;
   }
 }
 
