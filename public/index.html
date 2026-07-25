@@ -315,8 +315,12 @@
               <p id="email-fallback-msg" class="text-sm text-amber-900 mb-2"></p>
               <a id="email-link" href="#"
                 class="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 text-sm">
-                Use plain mail link instead
+                Open in desktop mail app
               </a>
+              <button onclick="downloadEmlDraft(activeDocTab)"
+                class="ml-2 px-4 py-2 border border-amber-300 text-amber-800 rounded-lg font-medium hover:bg-amber-100 text-sm">
+                Download .eml draft
+              </button>
               <button onclick="document.getElementById('email-fallback').classList.add('hidden')"
                 class="ml-2 text-sm text-amber-700 hover:text-amber-900 underline">Dismiss</button>
             </div>

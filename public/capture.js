@@ -251,12 +251,38 @@ function safeFileName(s) {
   return s.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
+// Opens Gmail's compose window in a new tab with everything pre-filled.
+// Chosen as the primary path because it's plain https - no OS protocol
+// handler, no mail client registration, and a URL budget large enough for a
+// full consult letter. mailto: went through Windows' handler and Outlook
+// classic silently declined to open a draft from it.
 function emailDocument(type) {
   const subject = DOC_TITLES[type] + ' - ' + patientLabel();
   const body = formatDocument(type);
 
-  // Primary path: hand the OS a real draft file. Outlook opens .eml natively.
-  const blob = new Blob([buildEml(subject, body)], { type: 'message/rfc822' });
+  const gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1' +
+    '&bcc=' + encodeURIComponent(ALWAYS_BCC) +
+    '&su=' + encodeURIComponent(subject) +
+    '&body=' + encodeURIComponent(body);
+
+  window.open(gmailUrl, '_blank', 'noopener');
+
+  // Keep a desktop-client route available without another click through a menu.
+  copyToClipboardSync(body);
+  const mailtoUrl = 'mailto:' + encodeURIComponent(ALWAYS_BCC) +
+    '?subject=' + encodeURIComponent(subject) +
+    '&body=' + encodeURIComponent(body.slice(0, 1200));
+
+  document.getElementById('email-link').href = mailtoUrl;
+  document.getElementById('email-fallback-msg').textContent =
+    'Gmail should have opened in a new tab with this ' + DOC_TITLES[type] +
+    ' ready to send. If your browser blocked the popup, or you use a desktop mail app instead, use the link below — the note is also on your clipboard.';
+  document.getElementById('email-fallback').classList.remove('hidden');
+}
+
+function downloadEmlDraft(type) {
+  const subject = DOC_TITLES[type] + ' - ' + patientLabel();
+  const blob = new Blob([buildEml(subject, formatDocument(type))], { type: 'message/rfc822' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -265,23 +291,6 @@ function emailDocument(type) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-
-  // Secondary path, in case .eml isn't associated with their mail client.
-  copyToClipboardSync(body);
-  const mailtoUrl = 'mailto:?bcc=' + encodeURIComponent(ALWAYS_BCC) +
-    '&subject=' + encodeURIComponent(subject) +
-    (('mailto:?bcc=' + encodeURIComponent(ALWAYS_BCC) + '&subject=' + encodeURIComponent(subject) +
-      '&body=' + encodeURIComponent(body)).length <= MAILTO_URL_LIMIT
-      ? '&body=' + encodeURIComponent(body)
-      : '');
-
-  const link = document.getElementById('email-link');
-  link.href = mailtoUrl;
-  document.getElementById('email-fallback-msg').textContent =
-    'A draft file (' + a.download + ') was downloaded — open it and Outlook will launch with the ' +
-    DOC_TITLES[type] + ', subject and BCC already filled in. ' +
-    'The note is also on your clipboard. If you would rather use a plain mail link, click below.';
-  document.getElementById('email-fallback').classList.remove('hidden');
 }
 
 function copyDocument(type) {
