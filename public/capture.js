@@ -22,6 +22,7 @@ async function checkBackendStatus() {
     const data = await res.json();
     const el = document.getElementById('backend-status');
     const parts = [];
+    if (data.workerConfigured) parts.push('Worker');
     if (data.cloudflareConfigured) parts.push('Cloudflare');
     if (data.openaiConfigured) parts.push('OpenAI');
     if (data.awsConfigured) parts.push('AWS');
