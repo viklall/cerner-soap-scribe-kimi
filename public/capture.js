@@ -89,11 +89,22 @@ function documentHeader(type) {
       })
     : new Date().toLocaleString();
 
+  // A name recovered from the transcript is a speech-recognition guess, not a
+  // chart lookup. This document gets emailed out of the app, so an unverified
+  // identity is labelled rather than presented as if it came from the record.
+  const charted = currentPatient && currentPatient.name;
+  const guessed = charted ? '' : extractDisplayName(currentTranscript);
+  const patientLine = charted
+    ? charted
+    : guessed
+      ? guessed + '  [name heard in dictation - not verified against chart]'
+      : '[not identified - no chart record linked]';
+
   const lines = [
     'RMS HEALTHCARE',
     DOC_TITLES[type].toUpperCase(),
     RULE,
-    'Patient:    ' + patientLabel(),
+    'Patient:    ' + patientLine,
     'Date:       ' + dateStr,
     'Clinician:  Ashok Lall, MD, FRCPC'
   ];
