@@ -34,7 +34,8 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     mockMode: process.env.CERNER_MOCK_MODE === 'true',
     awsConfigured: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY),
-    openaiConfigured: !!process.env.OPENAI_API_KEY
+    openaiConfigured: !!process.env.OPENAI_API_KEY,
+    kimiConfigured: !!process.env.KIMI_TRANSCRIPTION_URL
   });
 });
 
@@ -42,7 +43,7 @@ app.get('/api/health', (req, res) => {
 app.post('/api/visits', upload.single('audio'), async (req, res) => {
   const visitId = uuidv4();
   const filePath = req.file?.path;
-  const transcript = req.body.transcript; // from Web Speech API
+  const transcript = req.body.transcript;
 
   if (!filePath) return res.status(400).json({ error: 'No audio file uploaded' });
 
@@ -98,4 +99,5 @@ app.listen(PORT, () => {
   console.log(`   Mock mode:   ${process.env.CERNER_MOCK_MODE === 'true' ? 'ENABLED' : 'disabled'}`);
   console.log(`   AWS:         ${process.env.AWS_ACCESS_KEY_ID ? 'configured' : 'not configured'}`);
   console.log(`   OpenAI:      ${process.env.OPENAI_API_KEY ? 'configured' : 'not configured'}`);
+  console.log(`   Kimi-Audio:  ${process.env.KIMI_TRANSCRIPTION_URL ? 'configured' : 'not configured'}`);
 });
