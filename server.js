@@ -135,6 +135,7 @@ routes['GET /api/health'] = async (req, res) => {
     timestamp: new Date().toISOString(),
     mockMode: MOCK_MODE,
     awsConfigured: false,
+    workerConfigured: !!process.env.TRANSCRIPTION_URL,
     cloudflareConfigured: !!(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN),
     openaiConfigured: !!process.env.OPENAI_API_KEY
   };
@@ -182,6 +183,7 @@ routes['POST /api/visits'] = async (req, res) => {
     soap: soap,
     fileName: audioPart.filename,
     awsConfigured: false,
+    workerConfigured: !!process.env.TRANSCRIPTION_URL,
     cloudflareConfigured: !!(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN),
     openaiConfigured: !!process.env.OPENAI_API_KEY,
     source: 'stub',
@@ -405,6 +407,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log('Cerner SOAP Scribe running on http://localhost:' + PORT);
   console.log('Mock mode: ' + (MOCK_MODE ? 'ENABLED' : 'disabled'));
+  console.log('Worker: ' + (process.env.TRANSCRIPTION_URL ? 'configured' : 'not configured'));
   console.log('Cloudflare: ' + (process.env.CLOUDFLARE_ACCOUNT_ID ? 'configured' : 'not configured'));
   console.log('OpenAI: ' + (process.env.OPENAI_API_KEY ? 'configured' : 'not configured'));
 });
