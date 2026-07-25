@@ -1,62 +1,30 @@
 # RMS Healthcare Scribe
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/viklall/cerner-soap-scribe-kimi)
+
 Audio capture → AI transcription (Kimi-Audio / AWS HealthScribe / OpenAI Whisper / Browser Speech) → SMART-on-FHIR writeback to Cerner.
 
-## Quick Start — 3 Options
+## Quick Start — 30 Seconds
 
-### Option 1: Mock Mode (zero setup, works immediately)
+Click the **Deploy to Render** button above, or run locally:
 
 ```bash
 git clone https://github.com/viklall/cerner-soap-scribe-kimi.git
 cd cerner-soap-scribe-kimi
-npm install
-CERNER_MOCK_MODE=true npm start
+CERNER_MOCK_MODE=true node server.js
 # Open http://localhost:8080
 ```
 
-Record audio → get stub SOAP → mock Cerner writeback. Full loop, no credentials.
+No `npm install` needed — the server runs on pure Node.js built-ins.
 
-### Option 2: Kimi-Audio Local Transcription (free, private, your hardware)
+## What You Get
 
-**Requires:** Python 3.10+, ~14GB disk space, 8GB+ RAM (GPU recommended)
-
-```bash
-# Terminal 1: Start Kimi-Audio transcription service
-cd transcription-service
-pip install -r requirements.txt
-python main.py
-# Service runs on http://localhost:8000
-
-# Terminal 2: Start the main app
-cd ..
-KIMI_TRANSCRIPTION_URL=http://localhost:8000 CERNER_MOCK_MODE=true npm start
-```
-
-Record audio → Kimi-Audio transcribes locally → real SOAP note → mock Cerner writeback.
-
-**Docker (both services together):**
-
-```bash
-docker-compose up --build
-# Main app: http://localhost:8080
-# Kimi-Audio: http://localhost:8000
-```
-
-### Option 3: Full Production (AWS HealthScribe + Real Cerner)
-
-```bash
-# .env
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_REGION=us-east-1
-AWS_S3_BUCKET=...
-AWS_ROLE_ARN=...
-CERNER_CLIENT_ID=c52afd29-60bd-4ddf-800f-b175bd91be59
-CERNER_TENANT_ID=ec2458f2-1e24-41c8-b71b-0e701af7583d
-CERNER_REDIRECT_URI=http://localhost:8080/callback
-
-npm start
-```
+1. **Record audio** in your browser (Chrome/Edge for best experience)
+2. **Live transcript** appears as you speak (Web Speech API)
+3. **SOAP note** generated automatically
+4. **Connect to Cerner** — mock mode works instantly, real OAuth available
+5. **Patient demographics** panel populates
+6. **Write back** the SOAP note as a FHIR DocumentReference
 
 ## Architecture
 
@@ -65,7 +33,7 @@ Browser (index.html + capture.js)
   ├─ Web Speech API → real-time live transcript
   └─ MediaRecorder → audio/webm
         ↓ POST /api/visits (audio + transcript)
-server.js
+server.js (zero-dependency, pure Node.js)
         ↓
 pipeline.js (tries in order)
   ├─ AWS HealthScribe (if AWS creds) → structured SOAP
@@ -89,82 +57,51 @@ cerner_writeback/
 | **Browser Speech** | Chrome/Edge only | Good | Real-time | Free | Browser local |
 | **Stub** | Nothing | Placeholder | Instant | Free | N/A |
 
-Pipeline tries them in order: HealthScribe → Kimi-Audio → Whisper → Browser Speech → Stub.
+## Deploy to Render (Permanent URL)
 
-## Kimi-Audio Setup
+1. Click **Deploy to Render** button at the top of this README
+2. Create a Render account (or log in)
+3. The service deploys automatically from this repo
+4. Set these environment variables in the Render dashboard:
+   - `CERNER_MOCK_MODE=true` (start here)
+   - `OPENAI_API_KEY` (optional, for Whisper)
+   - `AWS_*` keys (optional, for HealthScribe)
+5. Update `CERNER_REDIRECT_URI` to match your Render URL + `/callback`
+6. Every push to `main` auto-deploys via GitHub Actions
 
-Kimi-Audio is Moonshot AI's open-source speech model (Apache 2.0). It runs entirely on your hardware — no API keys, no data leaves your machine.
-
-### Manual Setup
+## Kimi-Audio Local Setup (Free, Private)
 
 ```bash
 cd transcription-service
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Run the service (downloads ~14GB model on first run)
 python main.py
+# Service runs on http://localhost:8000
 ```
 
-**Hardware requirements:**
-- **Minimum:** 8GB RAM, CPU only (slow but works)
-- **Recommended:** 16GB RAM, NVIDIA GPU with 8GB+ VRAM
-- **Optimal:** 24GB RAM, NVIDIA GPU with 16GB+ VRAM
+Then start the main app:
+```bash
+KIMI_TRANSCRIPTION_URL=http://localhost:8000 CERNER_MOCK_MODE=true node server.js
+```
 
-The model caches to `./cache/` after first download.
+**Hardware:** 8GB RAM minimum (CPU), 16GB+ recommended (GPU).
 
-### Docker Setup
+## Docker (Everything Together)
 
 ```bash
-# Make sure Docker has GPU support (NVIDIA Container Toolkit) for GPU acceleration
 docker-compose up --build
-
-# Or run just the transcription service
-docker build -t kimi-audio ./transcription-service
-docker run -p 8000:8000 -v kimi-cache:/app/cache --gpus all kimi-audio
+# Main app: http://localhost:8080
+# Kimi-Audio: http://localhost:8000
 ```
 
-### Environment Variables
+## Real Cerner OAuth
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KIMI_PORT` | `8000` | Service port |
-| `KIMI_DEVICE` | `auto` | `cuda`, `cpu`, or `auto` |
-| `KIMI_MODEL_ID` | `moonshotai/Kimi-Audio-7B-Instruct` | HuggingFace model ID |
-
-## Cerner OAuth
-
-Already registered app:
-- **Client ID**: `c52afd29-60bd-4ddf-800f-b175bd91be59`
-- **Tenant**: `ec2458f2-1e24-41c8-b71b-0e701af7583d`
-- **Redirect URI**: must match exactly (localhost or deployed URL)
-
-Visit `/auth/cerner/login` to initiate. Requires a real CernerCare developer account.
-
-## Mock Mode
-
-Set `CERNER_MOCK_MODE=true` to:
-- Skip real Cerner OAuth (auto-connects with test patient `12724066`)
-- Skip real FHIR writeback (returns the DocumentReference payload)
-- Still processes transcription normally if backend keys are provided
-
-## Deploy to Render
-
-1. Push repo to GitHub
-2. Go to [render.com](https://render.com) → New Web Service → connect repo
-3. Set environment variables:
-   - `CERNER_MOCK_MODE=true`
-   - `KIMI_TRANSCRIPTION_URL` (if running Kimi-Audio separately)
-   - `OPENAI_API_KEY` (optional)
-4. Update `CERNER_REDIRECT_URI` to your Render URL + `/callback`
-5. Deploy
-
-**Note:** Render free tier has limited RAM. Kimi-Audio needs ~14GB for the model. Use OpenAI Whisper or browser speech for Render deployment, or upgrade to a paid plan.
+1. Remove `CERNER_MOCK_MODE=true`
+2. Update `CERNER_REDIRECT_URI` to your exact URL
+3. Visit `/auth/cerner/login`
+4. Log in with your CernerCare developer account
+5. Patient panel populates with real sandbox data
 
 ## Environment Variables
 
