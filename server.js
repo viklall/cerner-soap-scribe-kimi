@@ -18,6 +18,8 @@ const hasCloudflare = !!CF_ACCOUNT_ID && !!CF_API_TOKEN;
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const hasUpstash = !!UPSTASH_URL && !!UPSTASH_TOKEN;
+const D1_DATABASE_ID = process.env.CLOUDFLARE_D1_DATABASE_ID;
+const hasD1 = hasCloudflare && !!D1_DATABASE_ID;
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -25,11 +27,51 @@ const sessions = new Map();
 let lastTranscriptionError = null;
 let lastTranscriptionResult = null;
 
-// Visit history. If Upstash Redis is configured, that's the source of truth -
-// it survives Render deploys (unlike the local disk, which is wiped every
-// deploy). Without Upstash, falls back to the local JSON file (survives a
-// restart, not a redeploy).
+// Visit history. Tries Cloudflare D1 first (5GB free, survives redeploys),
+// then Upstash Redis (256MB free, also survives redeploys), then falls back
+// to the local JSON file (survives a restart, not a redeploy).
 let visitHistory = [];
+
+function d1Query(sql, params) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ sql: sql, params: params || [] });
+    const options = {
+      hostname: 'api.cloudflare.com',
+      path: '/client/v4/accounts/' + CF_ACCOUNT_ID + '/d1/database/' + D1_DATABASE_ID + '/query',
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + CF_API_TOKEN,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      },
+      timeout: 15000
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (!json.success) {
+            reject(new Error(json.errors?.[0]?.message || 'D1 query failed'));
+          } else {
+            resolve(json.result && json.result[0] ? json.result[0] : { results: [] });
+          }
+        } catch (e) {
+          reject(new Error('Invalid D1 response: ' + data.slice(0, 200)));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => reject(new Error('D1 request timeout')));
+    req.write(body);
+    req.end();
+  });
+}
+
+async function ensureD1Table() {
+  await d1Query('CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)');
+}
 
 function upstashRequest(cmdPath, body) {
   return new Promise((resolve, reject) => {
@@ -56,6 +98,18 @@ function upstashRequest(cmdPath, body) {
 }
 
 async function loadVisitHistory() {
+  if (hasD1) {
+    try {
+      await ensureD1Table();
+      const result = await d1Query('SELECT value FROM kv WHERE key = ?', ['visitHistory']);
+      const row = result.results && result.results[0];
+      visitHistory = row ? JSON.parse(row.value) : [];
+      console.log('Loaded ' + visitHistory.length + ' visits from Cloudflare D1');
+      return;
+    } catch (e) {
+      console.error('Failed to load visit history from D1: ' + e.message);
+    }
+  }
   if (hasUpstash) {
     try {
       const result = await upstashRequest('/get/visitHistory');
@@ -79,6 +133,17 @@ async function saveVisitRecord(record) {
   visitHistory.unshift(record);
   visitHistory = visitHistory.slice(0, MAX_VISIT_HISTORY);
 
+  if (hasD1) {
+    try {
+      await d1Query(
+        'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['visitHistory', JSON.stringify(visitHistory)]
+      );
+      return;
+    } catch (e) {
+      console.error('Failed to persist visit history to D1: ' + e.message);
+    }
+  }
   if (hasUpstash) {
     try {
       await upstashRequest('/set/visitHistory', JSON.stringify(visitHistory));
@@ -477,7 +542,8 @@ routes['GET /api/health'] = async (req, res) => {
     cloudflareConfigured: hasCloudflare,
     cloudflareAccountId: CF_ACCOUNT_ID ? CF_ACCOUNT_ID.slice(0, 8) + '...' : null,
     openaiConfigured: !!process.env.OPENAI_API_KEY,
-    upstashConfigured: hasUpstash
+    upstashConfigured: hasUpstash,
+    d1Configured: hasD1
   };
 };
 
@@ -824,6 +890,8 @@ loadVisitHistory().then(() => {
     console.log('Cerner SOAP Scribe running on http://localhost:' + PORT);
     console.log('Mock mode: ' + (MOCK_MODE ? 'ENABLED' : 'disabled'));
     console.log('Cloudflare: ' + (hasCloudflare ? 'configured (' + CF_ACCOUNT_ID.slice(0, 8) + '...)' : 'NOT configured'));
-    console.log('Upstash: ' + (hasUpstash ? 'configured' : 'NOT configured (visit history will not survive redeploys)'));
+    console.log('D1: ' + (hasD1 ? 'configured' : 'NOT configured'));
+    console.log('Upstash: ' + (hasUpstash ? 'configured' : 'NOT configured'));
+    if (!hasD1 && !hasUpstash) console.log('WARNING: no backing store configured - visit history will not survive redeploys');
   });
 });
