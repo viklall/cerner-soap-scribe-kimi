@@ -1,7 +1,7 @@
 {
   "name": "cerner-soap-scribe",
-  "version": "1.0.0",
-  "description": "Audio capture → AWS HealthScribe → SMART-on-FHIR writeback",
+  "version": "1.1.0",
+  "description": "Audio capture → AWS HealthScribe/OpenAI Whisper → SMART-on-FHIR writeback",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -15,9 +15,12 @@
     "aws-sdk": "^2.1499.0",
     "axios": "^1.6.2",
     "uuid": "^9.0.1",
-    "crypto": "^1.0.1"
+    "form-data": "^4.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
