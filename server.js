@@ -608,6 +608,15 @@ routes['POST /api/visits'] = async (req, res) => {
   console.log('[' + visitId + '] Audio: ' + audioPart.filename + ' (' + audioPart.data.length + ' bytes)');
   console.log('[' + visitId + '] Cloudflare configured: ' + hasCloudflare);
 
+  // Stash the raw audio on disk keyed by visitId, so /api/soap (a separate later
+  // request with no audio of its own) can pick it up once the note is generated
+  // and the visit is actually persisted.
+  try {
+    fs.writeFileSync(path.join(UPLOAD_DIR, visitId + '.webm'), audioPart.data);
+  } catch (e) {
+    console.error('[' + visitId + '] Failed to stash audio: ' + e.message);
+  }
+
   let transcript = transcriptPart ? transcriptPart.data.toString() : null;
   let source = 'browser-speech';
   let cloudflareError = null;
@@ -652,12 +661,25 @@ routes['POST /api/soap'] = async (req, res) => {
 
   const soap = generateSOAP(transcript, visitId, source, patientName);
 
+  let audioBase64 = null;
+  const audioPath = path.join(UPLOAD_DIR, visitId + '.webm');
+  try {
+    if (fs.existsSync(audioPath)) {
+      audioBase64 = fs.readFileSync(audioPath).toString('base64');
+      fs.unlinkSync(audioPath);
+    }
+  } catch (e) {
+    console.error('[' + visitId + '] Failed to read/embed stashed audio: ' + e.message);
+  }
+
   await saveVisitRecord({
     visitId: visitId,
     patientName: patientName,
     transcript: transcript,
     soap: soap,
     source: source,
+    audioBase64: audioBase64,
+    audioMimeType: audioBase64 ? 'audio/webm' : null,
     createdAt: new Date().toISOString()
   });
 

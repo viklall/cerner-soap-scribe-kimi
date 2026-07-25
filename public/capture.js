@@ -64,9 +64,27 @@ function loadLocalHistory() {
 
 function saveLocalHistory(visits) {
   try {
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(visits.slice(0, 200)));
+    // Audio is durably stored server-side (D1/Upstash); keeping it out of
+    // localStorage avoids blowing past its ~5-10MB per-origin quota.
+    const stripped = visits.slice(0, 200).map((v) => {
+      const copy = Object.assign({}, v);
+      delete copy.audioBase64;
+      return copy;
+    });
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(stripped));
   } catch (e) {
     console.error('Failed to save local visit history:', e);
+  }
+}
+
+function setSoapAudio(src) {
+  const audioEl = document.getElementById('soap-audio');
+  if (src) {
+    audioEl.src = src;
+    audioEl.classList.remove('hidden');
+  } else {
+    audioEl.removeAttribute('src');
+    audioEl.classList.add('hidden');
   }
 }
 
@@ -142,6 +160,7 @@ function loadHistoryItem(visitId) {
 
   document.getElementById('review-section').classList.add('hidden');
   displaySOAP(v.soap, v.source, null);
+  setSoapAudio(v.audioBase64 ? 'data:' + (v.audioMimeType || 'audio/webm') + ';base64,' + v.audioBase64 : null);
   renderVisitHistory();
   document.getElementById('soap-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -362,6 +381,7 @@ async function startRecording() {
     document.getElementById('upload-btn').disabled = true;
     document.getElementById('review-section').classList.add('hidden');
     document.getElementById('soap-section').classList.add('hidden');
+    setSoapAudio(null);
     clearLiveTranscript();
 
     timerInterval = setInterval(() => {
@@ -463,6 +483,7 @@ async function generateSoapFromTranscript() {
 
     currentSoap = data.soap;
     displaySOAP(data.soap, data.source, currentHint);
+    setSoapAudio(audioBlob ? URL.createObjectURL(audioBlob) : null);
     loadVisitHistory();
 
   } catch (err) {
