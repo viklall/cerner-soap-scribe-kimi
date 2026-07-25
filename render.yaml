@@ -18,6 +18,8 @@ services:
         value: https://cerner-soap-scribe.onrender.com/callback
       - key: CERNER_MOCK_MODE
         value: true
+      - key: TRANSCRIPTION_URL
+        sync: false
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: CLOUDFLARE_API_TOKEN
