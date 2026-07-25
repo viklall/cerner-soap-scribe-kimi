@@ -15,6 +15,9 @@ const MOCK_MODE = process.env.CERNER_MOCK_MODE === 'true';
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const hasCloudflare = !!CF_ACCOUNT_ID && !!CF_API_TOKEN;
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const hasUpstash = !!UPSTASH_URL && !!UPSTASH_TOKEN;
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -22,25 +25,73 @@ const sessions = new Map();
 let lastTranscriptionError = null;
 let lastTranscriptionResult = null;
 
-// Visit history: persisted to disk so it survives a server restart, though NOT
-// a fresh deploy (Render's free tier disk is ephemeral across deploys).
+// Visit history. If Upstash Redis is configured, that's the source of truth -
+// it survives Render deploys (unlike the local disk, which is wiped every
+// deploy). Without Upstash, falls back to the local JSON file (survives a
+// restart, not a redeploy).
 let visitHistory = [];
-try {
-  if (fs.existsSync(VISITS_FILE)) {
-    visitHistory = JSON.parse(fs.readFileSync(VISITS_FILE, 'utf8'));
-  }
-} catch (e) {
-  console.error('Failed to load visit history: ' + e.message);
+
+function upstashRequest(cmdPath, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(UPSTASH_URL + cmdPath);
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Authorization': 'Bearer ' + UPSTASH_TOKEN }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Invalid Upstash response: ' + data.slice(0, 200))); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => reject(new Error('Upstash request timeout')));
+    req.setTimeout(15000);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
 }
 
-function saveVisitRecord(record) {
+async function loadVisitHistory() {
+  if (hasUpstash) {
+    try {
+      const result = await upstashRequest('/get/visitHistory');
+      visitHistory = result.result ? JSON.parse(result.result) : [];
+      console.log('Loaded ' + visitHistory.length + ' visits from Upstash');
+      return;
+    } catch (e) {
+      console.error('Failed to load visit history from Upstash: ' + e.message);
+    }
+  }
+  try {
+    if (fs.existsSync(VISITS_FILE)) {
+      visitHistory = JSON.parse(fs.readFileSync(VISITS_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Failed to load visit history from disk: ' + e.message);
+  }
+}
+
+async function saveVisitRecord(record) {
   visitHistory.unshift(record);
   visitHistory = visitHistory.slice(0, MAX_VISIT_HISTORY);
+
+  if (hasUpstash) {
+    try {
+      await upstashRequest('/set/visitHistory', JSON.stringify(visitHistory));
+      return;
+    } catch (e) {
+      console.error('Failed to persist visit history to Upstash: ' + e.message);
+    }
+  }
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(VISITS_FILE, JSON.stringify(visitHistory));
   } catch (e) {
-    console.error('Failed to persist visit history: ' + e.message);
+    console.error('Failed to persist visit history to disk: ' + e.message);
   }
 }
 
@@ -425,7 +476,8 @@ routes['GET /api/health'] = async (req, res) => {
     mockMode: MOCK_MODE,
     cloudflareConfigured: hasCloudflare,
     cloudflareAccountId: CF_ACCOUNT_ID ? CF_ACCOUNT_ID.slice(0, 8) + '...' : null,
-    openaiConfigured: !!process.env.OPENAI_API_KEY
+    openaiConfigured: !!process.env.OPENAI_API_KEY,
+    upstashConfigured: hasUpstash
   };
 };
 
@@ -534,7 +586,7 @@ routes['POST /api/soap'] = async (req, res) => {
 
   const soap = generateSOAP(transcript, visitId, source, patientName);
 
-  saveVisitRecord({
+  await saveVisitRecord({
     visitId: visitId,
     patientName: patientName,
     transcript: transcript,
@@ -767,8 +819,11 @@ const server = http.createServer(async (req, res) => {
   serveStatic(url.pathname, res);
 });
 
-server.listen(PORT, () => {
-  console.log('Cerner SOAP Scribe running on http://localhost:' + PORT);
-  console.log('Mock mode: ' + (MOCK_MODE ? 'ENABLED' : 'disabled'));
-  console.log('Cloudflare: ' + (hasCloudflare ? 'configured (' + CF_ACCOUNT_ID.slice(0, 8) + '...)' : 'NOT configured'));
+loadVisitHistory().then(() => {
+  server.listen(PORT, () => {
+    console.log('Cerner SOAP Scribe running on http://localhost:' + PORT);
+    console.log('Mock mode: ' + (MOCK_MODE ? 'ENABLED' : 'disabled'));
+    console.log('Cloudflare: ' + (hasCloudflare ? 'configured (' + CF_ACCOUNT_ID.slice(0, 8) + '...)' : 'NOT configured'));
+    console.log('Upstash: ' + (hasUpstash ? 'configured' : 'NOT configured (visit history will not survive redeploys)'));
+  });
 });
