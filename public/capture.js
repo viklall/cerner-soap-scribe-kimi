@@ -174,10 +174,43 @@ const DOC_TITLES = {
   transcript: 'Encounter Transcript'
 };
 
+// Windows caps the whole mailto: URL near 2048 chars and silently does nothing
+// past that - a full consult letter encodes to ~3200. So: send the body inline
+// when it fits, otherwise put the document on the clipboard and open an empty
+// draft for the user to paste into.
+const MAILTO_URL_LIMIT = 1900;
+
+function openMailto(url) {
+  // An anchor click is handled more reliably by the OS handler than assigning
+  // window.location.href, which some browsers drop for external protocols.
+  const a = document.createElement('a');
+  a.href = url;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 0);
+}
+
 function emailDocument(type) {
   const subject = DOC_TITLES[type] + ' - ' + patientLabel();
   const body = formatDocument(type);
-  window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  const fullUrl = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+
+  if (fullUrl.length <= MAILTO_URL_LIMIT) {
+    openMailto(fullUrl);
+    return;
+  }
+
+  const proceed = () => {
+    openMailto('mailto:?subject=' + encodeURIComponent(subject));
+    alert('This ' + DOC_TITLES[type] + ' is too long to fit in a mail link, so it was copied to your clipboard.\n\n' +
+      'Your email draft is opening now — press Ctrl+V to paste the note in.');
+  };
+
+  navigator.clipboard.writeText(body).then(proceed, () => {
+    alert('This ' + DOC_TITLES[type] + ' is too long for a mail link and the clipboard was blocked.\n\n' +
+      'Use the Copy button, then paste into your email manually.');
+  });
 }
 
 function copyDocument(type) {
@@ -252,12 +285,19 @@ function saveLocalHistory(visits) {
 
 function setSoapAudio(src) {
   const audioEl = document.getElementById('soap-audio');
+  const noAudioMsg = document.getElementById('no-audio-msg');
+  const tab = document.getElementById('tab-transcript');
+
   if (src) {
     audioEl.src = src;
     audioEl.classList.remove('hidden');
+    noAudioMsg.classList.add('hidden');
+    tab.textContent = 'Encounter Transcript 🎧';
   } else {
     audioEl.removeAttribute('src');
     audioEl.classList.add('hidden');
+    noAudioMsg.classList.remove('hidden');
+    tab.textContent = 'Encounter Transcript';
   }
 }
 

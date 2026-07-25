@@ -274,8 +274,15 @@
 
             <!-- Transcript -->
             <div id="doc-transcript" class="doc-panel hidden">
+              <div class="mb-5">
+                <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide mb-2">🎧 Visit Recording</h3>
+                <audio id="soap-audio" controls class="hidden w-full"></audio>
+                <p id="no-audio-msg" class="text-sm text-slate-400 hidden">
+                  No audio saved for this encounter.
+                </p>
+              </div>
+              <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide mb-2">Transcript</h3>
               <p id="soap-transcript" class="text-slate-600 text-sm whitespace-pre-wrap bg-slate-50 p-4 rounded"></p>
-              <audio id="soap-audio" controls class="hidden w-full mt-4"></audio>
             </div>
 
             <!-- Per-document actions (apply to whichever tab is open) -->
