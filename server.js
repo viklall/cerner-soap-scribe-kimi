@@ -1,3 +1,4 @@
+// VERSION: 2026-07-25-CLOUDFLARE-FIX-v2
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -227,6 +228,15 @@ function generateSOAP(transcript, visitId, source) {
 }
 
 const routes = {};
+
+routes['GET /api/version'] = async (req, res) => {
+  return {
+    version: '2026-07-25-v2',
+    cloudflareConfigured: hasCloudflare,
+    mockMode: MOCK_MODE,
+    timestamp: new Date().toISOString()
+  };
+};
 
 routes['GET /api/health'] = async (req, res) => {
   return {
