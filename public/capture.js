@@ -221,26 +221,67 @@ function copyToClipboardSync(text) {
   return ok;
 }
 
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+
+// Builds an RFC-822 .eml draft. Opening one launches Outlook with the subject,
+// BCC and full body already populated - no mailto: length ceiling, and no
+// dependence on how the browser/OS has the mailto protocol registered.
+// X-Unsent: 1 is what makes Outlook treat it as an editable draft rather than
+// a received message.
+function buildEml(subject, body) {
+  return [
+    'To: ',
+    'Bcc: ' + ALWAYS_BCC,
+    'Subject: ' + subject,
+    'X-Unsent: 1',
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    utf8ToBase64(body).replace(/(.{76})/g, '$1\r\n')
+  ].join('\r\n');
+}
+
+function safeFileName(s) {
+  return s.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+}
+
 function emailDocument(type) {
   const subject = DOC_TITLES[type] + ' - ' + patientLabel();
   const body = formatDocument(type);
-  const bcc = 'bcc=' + encodeURIComponent(ALWAYS_BCC);
-  const fullUrl = 'mailto:?' + bcc + '&subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
 
-  if (fullUrl.length <= MAILTO_URL_LIMIT) {
-    openMailto(fullUrl);
-    return;
-  }
+  // Primary path: hand the OS a real draft file. Outlook opens .eml natively.
+  const blob = new Blob([buildEml(subject, body)], { type: 'message/rfc822' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = safeFileName(subject) + '.eml';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 
-  // Too long for a mail link, so the note goes via the clipboard instead.
-  // Copy synchronously to stay inside the click's user-activation window.
-  const copied = copyToClipboardSync(body);
-  openMailto(
-    'mailto:?' + bcc + '&subject=' + encodeURIComponent(subject),
-    copied
-      ? 'This ' + DOC_TITLES[type] + ' is too long to fit in a mail link, so the full note was copied to your clipboard — paste it into the draft with Ctrl+V. If your email program did not open, click below.'
-      : 'This ' + DOC_TITLES[type] + ' is too long for a mail link and the clipboard was blocked — use the Copy button, then paste into the draft. If your email program did not open, click below.'
-  );
+  // Secondary path, in case .eml isn't associated with their mail client.
+  copyToClipboardSync(body);
+  const mailtoUrl = 'mailto:?bcc=' + encodeURIComponent(ALWAYS_BCC) +
+    '&subject=' + encodeURIComponent(subject) +
+    (('mailto:?bcc=' + encodeURIComponent(ALWAYS_BCC) + '&subject=' + encodeURIComponent(subject) +
+      '&body=' + encodeURIComponent(body)).length <= MAILTO_URL_LIMIT
+      ? '&body=' + encodeURIComponent(body)
+      : '');
+
+  const link = document.getElementById('email-link');
+  link.href = mailtoUrl;
+  document.getElementById('email-fallback-msg').textContent =
+    'A draft file (' + a.download + ') was downloaded — open it and Outlook will launch with the ' +
+    DOC_TITLES[type] + ', subject and BCC already filled in. ' +
+    'The note is also on your clipboard. If you would rather use a plain mail link, click below.';
+  document.getElementById('email-fallback').classList.remove('hidden');
 }
 
 function copyDocument(type) {
