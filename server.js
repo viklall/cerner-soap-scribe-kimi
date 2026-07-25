@@ -261,7 +261,19 @@ function serveStatic(reqPath, res) {
   const ext = path.extname(filePath);
   const contentType = mimeTypes[ext] || 'application/octet-stream';
 
-  res.writeHead(200, { 'Content-Type': contentType });
+  // The app shell is deployed continuously and has no cache-busting in its
+  // asset URLs, so a cached capture.js leaves users running old code after a
+  // deploy - which looks exactly like a bug that "wasn't fixed".
+  const noCache = ext === '.html' || ext === '.js' || ext === '.css';
+
+  res.writeHead(200, noCache
+    ? {
+        'Content-Type': contentType,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    : { 'Content-Type': contentType });
   fs.createReadStream(filePath).pipe(res);
 }
 

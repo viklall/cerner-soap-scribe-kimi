@@ -1,3 +1,8 @@
+// Bump when changing this file; lets us confirm from the console whether the
+// browser is running current code or a cached copy.
+const APP_JS_VERSION = '2026-07-25-gmail-compose';
+console.log('[RMS Scribe] capture.js ' + APP_JS_VERSION);
+
 let mediaRecorder = null;
 let audioChunks = [];
 let audioBlob = null;
@@ -56,6 +61,7 @@ function startNewEncounter() {
   document.getElementById('record-status').textContent = 'Tap to start recording';
   setEncounterMode('record');
   setSoapAudio(null);
+  hideEmailFallback();
   clearLiveTranscript();
   showView('encounter');
 }
@@ -70,6 +76,14 @@ function showDocTab(tab) {
     document.getElementById('tab-' + t).classList.toggle('active', t === tab);
   });
   document.getElementById('email-btn-label').textContent = DOC_TITLES[tab];
+  // The panel describes whichever document was last emailed, so it's stale the
+  // moment the tab (or encounter) changes.
+  hideEmailFallback();
+}
+
+function hideEmailFallback() {
+  const el = document.getElementById('email-fallback');
+  if (el) el.classList.add('hidden');
 }
 
 // ── Email a generated document ──
