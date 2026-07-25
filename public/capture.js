@@ -8,6 +8,8 @@ let currentVisitId = null;
 let recognition = null;
 let transcriptBuffer = '';
 let currentPatient = null;
+let currentSource = null;
+let currentHint = null;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -230,6 +232,8 @@ async function startRecording() {
     document.getElementById('timer').classList.remove('hidden');
     document.getElementById('audio-preview').classList.add('hidden');
     document.getElementById('upload-btn').disabled = true;
+    document.getElementById('review-section').classList.add('hidden');
+    document.getElementById('soap-section').classList.add('hidden');
     clearLiveTranscript();
 
     timerInterval = setInterval(() => {
@@ -261,7 +265,7 @@ function stopRecording() {
   document.getElementById('waveform').classList.add('hidden');
 }
 
-// ── Upload & Process ──
+// ── Upload & Transcribe ──
 async function uploadAudio() {
   if (!audioBlob) return;
 
@@ -275,6 +279,7 @@ async function uploadAudio() {
   }
 
   document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('review-section').classList.add('hidden');
   document.getElementById('soap-section').classList.add('hidden');
 
   try {
@@ -287,16 +292,56 @@ async function uploadAudio() {
 
     if (data.error) throw new Error(data.error);
 
-    currentSoap = data.soap;
     currentVisitId = data.visitId;
+    currentSource = data.source;
+    currentHint = data.hint;
 
-    displaySOAP(data.soap, data.source, data.hint);
+    document.getElementById('review-transcript').value = data.transcript || '';
+    document.getElementById('review-source').textContent = data.source ? 'Source: ' + data.source : '';
+    document.getElementById('review-section').classList.remove('hidden');
 
   } catch (err) {
-    alert('Processing failed: ' + err.message);
+    alert('Transcription failed: ' + err.message);
     console.error(err);
   } finally {
     document.getElementById('loading').classList.add('hidden');
+  }
+}
+
+// ── Generate SOAP from (possibly edited) transcript ──
+async function generateSoapFromTranscript() {
+  const transcript = document.getElementById('review-transcript').value.trim();
+  const btn = document.getElementById('generate-soap-btn');
+
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  document.getElementById('soap-section').classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/soap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcript: transcript,
+        visitId: currentVisitId,
+        patientName: currentPatient && currentPatient.name ? currentPatient.name : '',
+        source: currentSource
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    currentSoap = data.soap;
+    displaySOAP(data.soap, data.source, currentHint);
+
+  } catch (err) {
+    alert('SOAP generation failed: ' + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate SOAP Note';
   }
 }
 

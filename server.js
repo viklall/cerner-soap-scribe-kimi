@@ -485,16 +485,34 @@ routes['POST /api/visits'] = async (req, res) => {
   }
 
   const patientName = patientNamePart ? patientNamePart.data.toString().trim() : '';
-  const soap = generateSOAP(transcript, visitId, source, patientName);
 
   return {
     visitId: visitId,
-    soap: soap,
+    transcript: transcript,
+    patientName: patientName,
     fileName: audioPart.filename,
     cloudflareConfigured: hasCloudflare,
     cloudflareError: cloudflareError,
     source: source,
     hint: hasCloudflare ? null : 'Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for free Whisper'
+  };
+};
+
+// Separate step so the clinician can review/correct the raw transcript (speech-to-text
+// reliably mishears names and specific terms) before it's turned into a clinical note.
+routes['POST /api/soap'] = async (req, res) => {
+  const body = await readJSON(req);
+  const transcript = (body.transcript || '').toString();
+  const visitId = body.visitId || uuidv4();
+  const patientName = (body.patientName || '').toString().trim();
+  const source = body.source || 'generated';
+
+  const soap = generateSOAP(transcript, visitId, source, patientName);
+
+  return {
+    visitId: visitId,
+    soap: soap,
+    source: source
   };
 };
 
