@@ -14,6 +14,7 @@ let visitHistoryCache = [];
 let currentConsultLetter = null;
 let currentAvs = null;
 let currentTranscript = '';
+let currentVisitDate = null;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -77,7 +78,31 @@ function patientLabel() {
   return guessed || 'patient';
 }
 
-function formatDocument(type) {
+const RULE = '='.repeat(56);
+
+// Letterhead prepended to every exported/emailed document so a note pasted
+// into an email or chart still identifies who/what/when on its own.
+function documentHeader(type) {
+  const dateStr = currentVisitDate
+    ? new Date(currentVisitDate).toLocaleString([], {
+        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      })
+    : new Date().toLocaleString();
+
+  const lines = [
+    'RMS HEALTHCARE',
+    DOC_TITLES[type].toUpperCase(),
+    RULE,
+    'Patient:    ' + patientLabel(),
+    'Date:       ' + dateStr,
+    'Clinician:  Ashok Lall, MD, FRCPC'
+  ];
+  if (currentVisitId) lines.push('Encounter:  ' + currentVisitId);
+  lines.push(RULE);
+  return lines.join('\n');
+}
+
+function documentBody(type) {
   if (type === 'transcript') {
     return currentTranscript || '(no transcript available)';
   }
@@ -86,28 +111,49 @@ function formatDocument(type) {
     if (!currentSoap) return '(no SOAP note available)';
     const s = currentSoap;
     return ['SUBJECTIVE:', s.Subjective, '', 'OBJECTIVE:', s.Objective, '', 'ASSESSMENT:', s.Assessment, '', 'PLAN:', s.Plan]
-      .join('\n') +
-      ((currentConsultLetter && currentConsultLetter.footer) ? '\n\n' + currentConsultLetter.footer : '');
+      .join('\n');
   }
 
   if (type === 'consult') {
     if (!currentConsultLetter) return '(no consult letter available)';
     const l = currentConsultLetter;
-    const body = CONSULT_SECTIONS
+    return CONSULT_SECTIONS
       .filter((sec) => l[sec])
       .map((sec) => sec + ':\n' + l[sec])
       .join('\n\n');
-    return body + (l.footer ? '\n\n' + l.footer : '');
   }
 
   if (type === 'avs') {
     if (!currentAvs) return '(no after-visit summary available)';
     const a = currentAvs;
-    return [a.greeting, '', 'WHAT WE DISCUSSED', a.whatWeDiscussed, '', 'WHAT TO DO NEXT', a.whatToDo]
-      .join('\n') + (a.footer ? '\n\n' + a.footer : '');
+    return [a.greeting, '', 'WHAT WE DISCUSSED', a.whatWeDiscussed, '', 'WHAT TO DO NEXT', a.whatToDo].join('\n');
   }
 
   return '';
+}
+
+// Mirrors NOTE_FOOTER in server.js. Used for encounters saved before the
+// consult-letter/AVS generators existed, which have no server-supplied footer.
+const FALLBACK_FOOTER = 'Thanks once again for involving me in the care of this pleasant patient.\n\n' +
+  'With regards,\n' +
+  'Transcribed with voice dictation software.\n' +
+  'Ashok Lall, MD, FRCPC\n\n' +
+  'Informed consent was obtained from this patient for RMS Healthcare AI-assisted ambient charting. ' +
+  'Accuracy of the note has been verified by your clinician.\n\n' +
+  'This note was prepared using RMS Healthcare AI — a clinical assistant designed to save time, ' +
+  'reduce charting burden, and support better care.';
+
+function documentFooter() {
+  return (currentConsultLetter && currentConsultLetter.footer) ||
+    (currentAvs && currentAvs.footer) ||
+    FALLBACK_FOOTER;
+}
+
+function formatDocument(type) {
+  const parts = [documentHeader(type), '', documentBody(type), '', RULE];
+  const footer = documentFooter();
+  if (footer) parts.push(footer);
+  return parts.join('\n');
 }
 
 const DOC_TITLES = {
@@ -296,6 +342,7 @@ function loadHistoryItem(visitId) {
   currentConsultLetter = v.consultLetter || null;
   currentAvs = v.avs || null;
   currentTranscript = v.transcript || '';
+  currentVisitDate = v.createdAt || null;
   currentSource = v.source;
 
   showView('encounter');
@@ -624,6 +671,7 @@ async function generateSoapFromTranscript() {
     currentConsultLetter = data.consultLetter || null;
     currentAvs = data.avs || null;
     currentTranscript = transcript;
+    currentVisitDate = new Date().toISOString();
     displaySOAP(data.soap, data.source, currentHint);
     setSoapAudio(audioBlob ? URL.createObjectURL(audioBlob) : null);
     loadVisitHistory();
