@@ -132,7 +132,10 @@ async function loadVisitHistory() {
 async function saveVisitRecord(record) {
   visitHistory.unshift(record);
   visitHistory = visitHistory.slice(0, MAX_VISIT_HISTORY);
+  await persistVisitHistory();
+}
 
+async function persistVisitHistory() {
   if (hasD1) {
     try {
       await d1Query(
@@ -853,6 +856,33 @@ routes['POST /api/soap'] = async (req, res) => {
 
 routes['GET /api/visits/list'] = async (req, res) => {
   return { visits: visitHistory };
+};
+
+// Encounters saved before the consult-letter/AVS generators existed only have a
+// SOAP note, so those tabs come up empty. Regenerates the missing documents from
+// each stored transcript. Idempotent - only fills gaps, never overwrites.
+routes['POST /api/visits/backfill'] = async (req, res) => {
+  let filled = 0;
+  const details = [];
+
+  visitHistory.forEach(function (v) {
+    const missing = [];
+    if (!v.transcript) return;
+
+    if (!v.soap) { v.soap = generateSOAP(v.transcript, v.visitId, v.source, v.patientName || ''); missing.push('soap'); }
+    if (!v.consultLetter) { v.consultLetter = generateConsultLetter(v.transcript, v.visitId, v.patientName || ''); missing.push('consultLetter'); }
+    if (!v.avs) { v.avs = generateAVS(v.transcript, v.visitId, v.patientName || ''); missing.push('avs'); }
+
+    if (missing.length) {
+      filled++;
+      details.push({ visitId: v.visitId, added: missing });
+    }
+  });
+
+  if (filled) await persistVisitHistory();
+
+  console.log('Backfill: filled ' + filled + ' of ' + visitHistory.length + ' encounters');
+  return { ok: true, encountersUpdated: filled, totalEncounters: visitHistory.length, details: details };
 };
 
 routes['GET /auth/cerner/login'] = async (req, res) => {

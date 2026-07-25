@@ -184,15 +184,23 @@ const MAILTO_URL_LIMIT = 1900;
 // Clinic records address, blind-copied on every document sent from the app.
 const ALWAYS_BCC = 'eastwesthelp1@gmail.com';
 
-function openMailto(url) {
-  // An anchor click is handled more reliably by the OS handler than assigning
-  // window.location.href, which some browsers drop for external protocols.
-  const a = document.createElement('a');
-  a.href = url;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => a.remove(), 0);
+// Programmatic mailto: navigation is genuinely unreliable - some browsers drop
+// location.href for external protocols, some ignore clicks on detached/hidden
+// anchors, and Brave/Chrome need a registered handler. So try it, but always
+// surface a real anchor the user can click, which always works.
+function openMailto(url, message) {
+  const fallback = document.getElementById('email-fallback');
+  const link = document.getElementById('email-link');
+  link.href = url;
+  document.getElementById('email-fallback-msg').textContent = message ||
+    'If your email program did not open automatically, click below.';
+  fallback.classList.remove('hidden');
+
+  try {
+    window.location.href = url;
+  } catch (e) {
+    console.error('mailto navigation failed:', e);
+  }
 }
 
 // Synchronous copy. navigator.clipboard.writeText is a promise, and continuing
@@ -224,20 +232,15 @@ function emailDocument(type) {
     return;
   }
 
-  // Everything below stays synchronous so the mail client still opens.
+  // Too long for a mail link, so the note goes via the clipboard instead.
+  // Copy synchronously to stay inside the click's user-activation window.
   const copied = copyToClipboardSync(body);
-  openMailto('mailto:?' + bcc + '&subject=' + encodeURIComponent(subject));
-
-  // Deferred so the alert can't interrupt the protocol handoff.
-  setTimeout(function () {
-    if (copied) {
-      alert('Your email draft is opening.\n\nThis ' + DOC_TITLES[type] + ' is too long to fit in a mail link, ' +
-        'so the full note was copied to your clipboard — press Ctrl+V in the draft to paste it in.');
-    } else {
-      alert('Your email draft is opening, but the clipboard was blocked.\n\n' +
-        'Use the Copy button on this tab, then paste into the draft.');
-    }
-  }, 600);
+  openMailto(
+    'mailto:?' + bcc + '&subject=' + encodeURIComponent(subject),
+    copied
+      ? 'This ' + DOC_TITLES[type] + ' is too long to fit in a mail link, so the full note was copied to your clipboard — paste it into the draft with Ctrl+V. If your email program did not open, click below.'
+      : 'This ' + DOC_TITLES[type] + ' is too long for a mail link and the clipboard was blocked — use the Copy button, then paste into the draft. If your email program did not open, click below.'
+  );
 }
 
 function copyDocument(type) {

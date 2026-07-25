@@ -309,6 +309,18 @@
               </button>
             </div>
 
+            <!-- Shown after Email is clicked: a real anchor the user can click, since
+                 programmatic mailto: navigation is unreliable across browsers/OS handlers. -->
+            <div id="email-fallback" class="hidden mt-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
+              <p id="email-fallback-msg" class="text-sm text-amber-900 mb-2"></p>
+              <a id="email-link" href="#"
+                class="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 text-sm">
+                Open email draft
+              </a>
+              <button onclick="document.getElementById('email-fallback').classList.add('hidden')"
+                class="ml-2 text-sm text-amber-700 hover:text-amber-900 underline">Dismiss</button>
+            </div>
+
             <!-- Writeback -->
             <div class="mt-6 pt-4 border-t border-slate-100">
               <button id="writeback-btn" onclick="writebackToCerner()"
