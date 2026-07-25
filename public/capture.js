@@ -22,11 +22,10 @@ async function checkBackendStatus() {
     const data = await res.json();
     const el = document.getElementById('backend-status');
     const parts = [];
-    if (data.kimiConfigured) parts.push('Kimi');
-    if (data.awsConfigured) parts.push('AWS');
     if (data.openaiConfigured) parts.push('OpenAI');
+    if (data.awsConfigured) parts.push('AWS');
     if (data.mockMode) parts.push('Mock');
-    el.textContent = parts.length ? parts.join(' · ') : 'No transcription backend';
+    el.textContent = parts.length ? parts.join(' · ') : 'Browser Speech only';
   } catch (e) {}
 }
 
