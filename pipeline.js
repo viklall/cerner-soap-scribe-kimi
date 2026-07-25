@@ -10,9 +10,12 @@ const S3_BUCKET = process.env.AWS_S3_BUCKET;
 const ACCESS_KEY = process.env.AWS_ACCESS_KEY_ID;
 const SECRET_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
+const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 
 const hasAwsCreds = ACCESS_KEY && SECRET_KEY && AWS_REGION && S3_BUCKET;
 const hasOpenAI = !!OPENAI_KEY;
+const hasCloudflare = !!CF_ACCOUNT_ID && !!CF_API_TOKEN;
 
 if (hasAwsCreds) {
   AWS.config.update({ region: AWS_REGION, accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY });
@@ -90,6 +93,32 @@ async function transcribeWithWhisper(filePath) {
   });
 
   return response.data;
+}
+
+// ── Cloudflare Workers AI Whisper ──
+async function transcribeWithCloudflare(filePath) {
+  if (!hasCloudflare) throw new Error('Cloudflare credentials not configured');
+
+  const audioBuffer = fs.readFileSync(filePath);
+  const base64Audio = audioBuffer.toString('base64');
+
+  const response = await axios.post(
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/openai/whisper`,
+    { audio: base64Audio },
+    {
+      headers: {
+        'Authorization': `Bearer ${CF_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000
+    }
+  );
+
+  if (!response.data.success) {
+    throw new Error(response.data.errors?.[0]?.message || 'Cloudflare transcription failed');
+  }
+
+  return response.data.result.text;
 }
 
 // ── Upload to S3 ──
@@ -180,7 +209,19 @@ async function process(filePath, visitId, browserTranscript = null) {
     }
   }
 
-  // 2. Try OpenAI Whisper
+  // 2. Try Cloudflare Workers AI (free tier)
+  if (!transcript && hasCloudflare) {
+    try {
+      console.log(`[${visitId}] Trying Cloudflare Workers AI...`);
+      transcript = await transcribeWithCloudflare(filePath);
+      source = 'cloudflare-whisper';
+      console.log(`[${visitId}] Cloudflare transcript: ${transcript.length} chars`);
+    } catch (err) {
+      console.error(`[${visitId}] Cloudflare failed: ${err.message}`);
+    }
+  }
+
+  // 3. Try OpenAI Whisper
   if (!transcript && hasOpenAI) {
     try {
       console.log(`[${visitId}] Trying OpenAI Whisper...`);
@@ -202,7 +243,7 @@ async function process(filePath, visitId, browserTranscript = null) {
     awsConfigured: hasAwsCreds,
     openaiConfigured: hasOpenAI,
     source,
-    hint: (hasAwsCreds || hasOpenAI) ? null : 'Set OPENAI_API_KEY for Whisper transcription, or AWS credentials for HealthScribe'
+    hint: (hasAwsCreds || hasCloudflare || hasOpenAI) ? null : 'Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for free Whisper, or OPENAI_API_KEY for paid Whisper'
   };
 }
 
