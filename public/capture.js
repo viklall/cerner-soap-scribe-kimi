@@ -22,6 +22,7 @@ async function checkBackendStatus() {
     const data = await res.json();
     const el = document.getElementById('backend-status');
     const parts = [];
+    if (data.kimiConfigured) parts.push('Kimi');
     if (data.awsConfigured) parts.push('AWS');
     if (data.openaiConfigured) parts.push('OpenAI');
     if (data.mockMode) parts.push('Mock');
