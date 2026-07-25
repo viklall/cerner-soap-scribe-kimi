@@ -2,137 +2,117 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/viklall/cerner-soap-scribe-kimi)
 
-Audio capture → AI transcription (Kimi-Audio / AWS HealthScribe / OpenAI Whisper / Browser Speech) → SMART-on-FHIR writeback to Cerner.
+Audio capture → AI transcription → SMART-on-FHIR writeback to Cerner.
 
-## Quick Start — 30 Seconds
+## Deploy (2 minutes)
 
-Click the **Deploy to Render** button above, or run locally:
+Click the **Deploy to Render** button above. The app deploys automatically with mock mode enabled — no credentials needed to demo.
+
+Your URL will be `https://cerner-soap-scribe.onrender.com` (or whatever you name it).
+
+## Run Locally
 
 ```bash
 git clone https://github.com/viklall/cerner-soap-scribe-kimi.git
 cd cerner-soap-scribe-kimi
-CERNER_MOCK_MODE=true node server.js
+npm install
+CERNER_MOCK_MODE=true npm start
 # Open http://localhost:8080
 ```
 
-No `npm install` needed — the server runs on pure Node.js built-ins.
+## What It Does
 
-## What You Get
+1. **Record audio** in the browser
+2. **Live transcript** appears as you speak (Chrome/Edge Web Speech API)
+3. **Generate SOAP note** — uses real transcription if configured, otherwise stub
+4. **Connect to Cerner** — mock mode works instantly; real OAuth available
+5. **Patient demographics** panel
+6. **Write back** SOAP as FHIR DocumentReference
 
-1. **Record audio** in your browser (Chrome/Edge for best experience)
-2. **Live transcript** appears as you speak (Web Speech API)
-3. **SOAP note** generated automatically
-4. **Connect to Cerner** — mock mode works instantly, real OAuth available
-5. **Patient demographics** panel populates
-6. **Write back** the SOAP note as a FHIR DocumentReference
+## Transcription Options
 
-## Architecture
+| Backend | How to Enable | Cost | Speed | Quality |
+|---------|--------------|------|-------|---------|
+| **Browser Speech** | Nothing — works in Chrome/Edge | Free | Real-time | Good |
+| **OpenAI Whisper** | Add `OPENAI_API_KEY` to env | ~$0.006/min | ~5 sec | Excellent |
+| **AWS HealthScribe** | Add AWS keys + S3 + IAM role | ~$0.05/min | ~1-2 min | Best (structured SOAP) |
+| **Stub** | Default when nothing else configured | Free | Instant | Placeholder |
 
-```
-Browser (index.html + capture.js)
-  ├─ Web Speech API → real-time live transcript
-  └─ MediaRecorder → audio/webm
-        ↓ POST /api/visits (audio + transcript)
-server.js (zero-dependency, pure Node.js)
-        ↓
-pipeline.js (tries in order)
-  ├─ AWS HealthScribe (if AWS creds) → structured SOAP
-  ├─ Kimi-Audio local (if KIMI_TRANSCRIPTION_URL) → transcript → SOAP
-  ├─ OpenAI Whisper API (if OPENAI_API_KEY) → transcript → SOAP
-  ├─ Browser Speech transcript → SOAP
-  └─ None of above → stub SOAP with instructions
-cerner_writeback/
-  ├─ oauth.js      SMART-on-FHIR PKCE flow
-  ├─ patient.js    Fetch Patient demographics from FHIR
-  └─ writeback.js  POST DocumentReference to Cerner
-```
+Pipeline tries: HealthScribe → Whisper → Browser Speech → Stub.
 
-## Transcription Backends
+## Add Real Transcription
 
-| Backend | Requires | Quality | Speed | Cost | Privacy |
-|---------|----------|---------|-------|------|---------|
-| **AWS HealthScribe** | AWS keys + S3 + IAM role | Best (structured SOAP) | Slow (~1-2 min) | ~$0.05/min | AWS cloud |
-| **Kimi-Audio (local)** | Python + ~14GB model | Excellent | Medium (~30-60s CPU, ~5-10s GPU) | Free | 100% local |
-| **OpenAI Whisper** | `OPENAI_API_KEY` | Excellent | Fast (~5-10 sec) | ~$0.006/min | OpenAI cloud |
-| **Browser Speech** | Chrome/Edge only | Good | Real-time | Free | Browser local |
-| **Stub** | Nothing | Placeholder | Instant | Free | N/A |
+### OpenAI Whisper (Recommended)
 
-## Deploy to Render (Permanent URL)
+1. Get an API key: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Add to your environment:
+   ```bash
+   export OPENAI_API_KEY=sk-your-key
+   npm start
+   ```
+   Or in Render dashboard → Environment → Add `OPENAI_API_KEY`
 
-1. Click **Deploy to Render** button at the top of this README
-2. Create a Render account (or log in)
-3. The service deploys automatically from this repo
-4. Set these environment variables in the Render dashboard:
-   - `CERNER_MOCK_MODE=true` (start here)
-   - `OPENAI_API_KEY` (optional, for Whisper)
-   - `AWS_*` keys (optional, for HealthScribe)
-5. Update `CERNER_REDIRECT_URI` to match your Render URL + `/callback`
-6. Every push to `main` auto-deploys via GitHub Actions
+### AWS HealthScribe (Enterprise)
 
-## Kimi-Audio Local Setup (Free, Private)
+Requires AWS account, S3 bucket, IAM role with HealthScribe permissions.
 
 ```bash
-cd transcription-service
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python main.py
-# Service runs on http://localhost:8000
-```
-
-Then start the main app:
-```bash
-KIMI_TRANSCRIPTION_URL=http://localhost:8000 CERNER_MOCK_MODE=true node server.js
-```
-
-**Hardware:** 8GB RAM minimum (CPU), 16GB+ recommended (GPU).
-
-## Docker (Everything Together)
-
-```bash
-docker-compose up --build
-# Main app: http://localhost:8080
-# Kimi-Audio: http://localhost:8000
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=us-east-1
+export AWS_S3_BUCKET=...
+export AWS_ROLE_ARN=...
+npm start
 ```
 
 ## Real Cerner OAuth
 
 1. Remove `CERNER_MOCK_MODE=true`
-2. Update `CERNER_REDIRECT_URI` to your exact URL
+2. Update `CERNER_REDIRECT_URI` to match your exact URL + `/callback`
 3. Visit `/auth/cerner/login`
-4. Log in with your CernerCare developer account
-5. Patient panel populates with real sandbox data
+4. Sign in with your CernerCare developer account
+
+Already registered app:
+- **Client ID:** `c52afd29-60bd-4ddf-800f-b175bd91be59`
+- **Tenant:** `ec2458f2-1e24-41c8-b71b-0e701af7583d`
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | No | Server port (default 8080) |
-| `KIMI_TRANSCRIPTION_URL` | For Kimi-Audio | Local service URL |
+| `OPENAI_API_KEY` | For Whisper | OpenAI API key |
 | `AWS_ACCESS_KEY_ID` | For HealthScribe | AWS key |
 | `AWS_SECRET_ACCESS_KEY` | For HealthScribe | AWS secret |
 | `AWS_REGION` | For HealthScribe | AWS region |
 | `AWS_S3_BUCKET` | For HealthScribe | S3 bucket |
-| `AWS_ROLE_ARN` | For HealthScribe | HealthScribe IAM role |
-| `OPENAI_API_KEY` | For Whisper | OpenAI API key |
-| `CERNER_CLIENT_ID` | No | Already set to registered app |
-| `CERNER_TENANT_ID` | No | Already set to sandbox |
+| `AWS_ROLE_ARN` | For HealthScribe | IAM role |
+| `CERNER_CLIENT_ID` | No | Pre-registered app ID |
+| `CERNER_TENANT_ID` | No | Pre-registered tenant |
 | `CERNER_REDIRECT_URI` | No | Must match registered URI exactly |
-| `CERNER_MOCK_MODE` | No | Set `true` to bypass real OAuth |
+| `CERNER_MOCK_MODE` | No | `true` = skip real OAuth |
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | Health + backend status |
-| POST | `/api/visits` | Upload audio + transcript, get SOAP |
-| GET | `/auth/cerner/login` | Start OAuth flow |
-| GET | `/callback` | OAuth redirect (registered URI) |
-| GET | `/api/cerner/status` | Check connection status |
-| GET | `/api/patient` | Fetch patient demographics |
+| GET | `/api/health` | Status + backend config |
+| POST | `/api/visits` | Upload audio, get SOAP |
+| GET | `/auth/cerner/login` | Start OAuth |
+| GET | `/callback` | OAuth redirect |
+| GET | `/api/cerner/status` | Connection status |
+| GET | `/api/patient` | Patient demographics |
 | POST | `/api/writeback` | Push SOAP to Cerner |
-| POST | `/api/mock/connect` | Force mock connection |
+
+## Local Development with Real Dependencies
+
+The repo includes a full Express server (`server-full.js` pattern in git history) with all npm packages. The current `server.js` is zero-dependency for easy deployment. To use the full version with real FHIR calls:
+
+```bash
+npm install
+# Use the full server (requires all deps installed)
+```
 
 ## License
 
-Apache 2.0. Kimi-Audio model weights are Apache 2.0 licensed by Moonshot AI.
+Apache 2.0
