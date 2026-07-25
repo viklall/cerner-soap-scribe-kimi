@@ -10,9 +10,11 @@ const S3_BUCKET = process.env.AWS_S3_BUCKET;
 const ACCESS_KEY = process.env.AWS_ACCESS_KEY_ID;
 const SECRET_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
+const KIMI_URL = process.env.KIMI_TRANSCRIPTION_URL || 'http://localhost:8000';
 
 const hasAwsCreds = ACCESS_KEY && SECRET_KEY && AWS_REGION && S3_BUCKET;
 const hasOpenAI = !!OPENAI_KEY;
+const hasKimi = !!KIMI_URL;
 
 if (hasAwsCreds) {
   AWS.config.update({ region: AWS_REGION, accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY });
@@ -37,7 +39,6 @@ function generateSOAP(transcript, visitId, source) {
     };
   }
 
-  // Simple keyword-based extraction (placeholder for real NLP)
   const lower = transcript.toLowerCase();
 
   let subjective = '';
@@ -70,6 +71,20 @@ function generateSOAP(transcript, visitId, source) {
     mode: source || 'generated',
     note: `Generated from ${source || 'transcript'}. Visit ID: ${visitId}`
   };
+}
+
+// ── Kimi-Audio Local Transcription ──
+async function transcribeWithKimi(filePath) {
+  const form = new FormData();
+  form.append('audio', fs.createReadStream(filePath));
+
+  const response = await axios.post(`${KIMI_URL}/transcribe`, form, {
+    headers: form.getHeaders(),
+    maxBodyLength: Infinity,
+    timeout: 300000  // 5 min for model inference
+  });
+
+  return response.data.transcript;
 }
 
 // ── OpenAI Whisper Transcription ──
@@ -181,7 +196,19 @@ async function process(filePath, visitId, browserTranscript = null) {
     }
   }
 
-  // 2. Try OpenAI Whisper if no AWS or AWS failed
+  // 2. Try Kimi-Audio local service
+  if (!transcript && hasKimi) {
+    try {
+      console.log(`[${visitId}] Trying Kimi-Audio local transcription...`);
+      transcript = await transcribeWithKimi(filePath);
+      source = 'kimi-audio';
+      console.log(`[${visitId}] Kimi-Audio transcript: ${transcript.length} chars`);
+    } catch (err) {
+      console.error(`[${visitId}] Kimi-Audio failed: ${err.message}`);
+    }
+  }
+
+  // 3. Try OpenAI Whisper
   if (!transcript && hasOpenAI) {
     try {
       console.log(`[${visitId}] Trying OpenAI Whisper...`);
@@ -193,7 +220,7 @@ async function process(filePath, visitId, browserTranscript = null) {
     }
   }
 
-  // 3. Generate SOAP from whatever transcript we have
+  // 4. Generate SOAP from whatever transcript we have
   const soap = generateSOAP(transcript, visitId, source);
 
   return {
@@ -201,9 +228,10 @@ async function process(filePath, visitId, browserTranscript = null) {
     soap,
     fileName,
     awsConfigured: hasAwsCreds,
+    kimiConfigured: hasKimi,
     openaiConfigured: hasOpenAI,
     source,
-    hint: hasAwsCreds ? null : (hasOpenAI ? null : 'Set OPENAI_API_KEY for Whisper transcription, or AWS credentials for HealthScribe')
+    hint: (hasAwsCreds || hasKimi || hasOpenAI) ? null : 'Set KIMI_TRANSCRIPTION_URL for local Kimi-Audio, OPENAI_API_KEY for Whisper, or AWS credentials for HealthScribe'
   };
 }
 
