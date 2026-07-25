@@ -4,14 +4,12 @@ const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 
-// Config
 const PORT = process.env.PORT || 8080;
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const MOCK_MODE = process.env.CERNER_MOCK_MODE === 'true';
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// In-memory session store
 const sessions = new Map();
 
 function uuidv4() {
@@ -47,7 +45,6 @@ function parseMultipart(buffer, boundary) {
     if (end === -1) break;
 
     let part = buffer.slice(start, end);
-    // Strip leading and trailing CRLF
     if (part.length >= 2 && part[0] === 0x0D && part[1] === 0x0A) {
       part = part.slice(2);
     }
@@ -126,7 +123,7 @@ function generateStubSOAP(visitId) {
     Plan: '1. Review transcript\n2. Verify findings\n3. Follow up as indicated',
     transcript: '[No transcript available - stub mode]',
     mode: 'stub',
-    note: 'This is a STUB SOAP note. Add OpenAI API key or AWS credentials for real transcription. Visit ID: ' + visitId
+    note: 'This is a STUB SOAP note. Add OPENAI_API_KEY for real transcription. Visit ID: ' + visitId
   };
 }
 
@@ -138,8 +135,7 @@ routes['GET /api/health'] = async (req, res) => {
     timestamp: new Date().toISOString(),
     mockMode: MOCK_MODE,
     awsConfigured: false,
-    openaiConfigured: false,
-    kimiConfigured: false
+    openaiConfigured: !!process.env.OPENAI_API_KEY
   };
 };
 
@@ -185,10 +181,9 @@ routes['POST /api/visits'] = async (req, res) => {
     soap: soap,
     fileName: audioPart.filename,
     awsConfigured: false,
-    openaiConfigured: false,
-    kimiConfigured: false,
+    openaiConfigured: !!process.env.OPENAI_API_KEY,
     source: 'stub',
-    hint: 'Set OPENAI_API_KEY for Whisper, AWS credentials for HealthScribe, or run Kimi-Audio service'
+    hint: 'Set OPENAI_API_KEY for Whisper transcription, or AWS credentials for HealthScribe'
   };
 };
 
@@ -406,7 +401,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log('Cerner SOAP Scribe (zero-dep) running on http://localhost:' + PORT);
+  console.log('Cerner SOAP Scribe running on http://localhost:' + PORT);
   console.log('Mock mode: ' + (MOCK_MODE ? 'ENABLED' : 'disabled'));
-  console.log('No npm packages required - pure Node.js built-ins');
+  console.log('OpenAI: ' + (process.env.OPENAI_API_KEY ? 'configured' : 'not configured'));
 });
