@@ -54,6 +54,7 @@ function startNewEncounter() {
   document.getElementById('audio-preview').classList.add('hidden');
   document.getElementById('upload-btn').disabled = true;
   document.getElementById('record-status').textContent = 'Tap to start recording';
+  setEncounterMode('record');
   setSoapAudio(null);
   clearLiveTranscript();
   showView('encounter');
@@ -313,18 +314,35 @@ function setSoapAudio(src) {
   const audioEl = document.getElementById('soap-audio');
   const noAudioMsg = document.getElementById('no-audio-msg');
   const tab = document.getElementById('tab-transcript');
+  const playbackAudio = document.getElementById('playback-audio');
+  const playbackNone = document.getElementById('playback-none');
 
   if (src) {
     audioEl.src = src;
     audioEl.classList.remove('hidden');
     noAudioMsg.classList.add('hidden');
     tab.textContent = 'Encounter Transcript 🎧';
+    playbackAudio.src = src;
+    playbackAudio.classList.remove('hidden');
+    playbackNone.classList.add('hidden');
   } else {
     audioEl.removeAttribute('src');
     audioEl.classList.add('hidden');
     noAudioMsg.classList.remove('hidden');
     tab.textContent = 'Encounter Transcript';
+    playbackAudio.removeAttribute('src');
+    playbackAudio.classList.add('hidden');
+    playbackNone.classList.remove('hidden');
   }
+}
+
+// A saved encounter is a record to review, not a session to record into - swap
+// the mic capture card for a playback card.
+function setEncounterMode(mode, meta) {
+  const isHistory = mode === 'history';
+  document.getElementById('capture-card').classList.toggle('hidden', isHistory);
+  document.getElementById('playback-card').classList.toggle('hidden', !isHistory);
+  document.getElementById('playback-meta').textContent = isHistory ? (meta || '') : '';
 }
 
 function mergeHistories(serverVisits, localVisits) {
@@ -424,6 +442,12 @@ function loadHistoryItem(visitId) {
 
   showView('encounter');
   document.getElementById('review-section').classList.add('hidden');
+
+  const metaBits = [];
+  if (v.createdAt) metaBits.push(new Date(v.createdAt).toLocaleString());
+  if (v.source) metaBits.push(v.source);
+  setEncounterMode('history', metaBits.join(' · '));
+
   displaySOAP(v.soap, v.source, null);
   setSoapAudio(v.audioBase64 ? 'data:' + (v.audioMimeType || 'audio/webm') + ';base64,' + v.audioBase64 : null);
 }

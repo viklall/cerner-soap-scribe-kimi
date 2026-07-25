@@ -163,6 +163,18 @@
             </div>
           </div>
 
+          <!-- Saved recording (historic encounters) -->
+          <div id="playback-card" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 hidden">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h2 class="text-lg font-semibold text-slate-800">🎧 Visit Recording</h2>
+              <span id="playback-meta" class="text-xs text-slate-400"></span>
+            </div>
+            <audio id="playback-audio" controls class="w-full hidden"></audio>
+            <p id="playback-none" class="text-sm text-slate-400 hidden">
+              No audio was saved for this encounter.
+            </p>
+          </div>
+
           <!-- Audio Capture -->
           <div id="capture-card" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
             <h2 class="text-lg font-semibold text-slate-800 mb-4">1. Record Visit Audio</h2>
