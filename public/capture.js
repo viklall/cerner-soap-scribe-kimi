@@ -11,6 +11,9 @@ let currentPatient = null;
 let currentSource = null;
 let currentHint = null;
 let visitHistoryCache = [];
+let currentConsultLetter = null;
+let currentAvs = null;
+let currentTranscript = '';
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -19,6 +22,56 @@ document.addEventListener('DOMContentLoaded', () => {
   initSpeechRecognition();
   loadVisitHistory();
 });
+
+// ── View switching (dashboard <-> encounter) ──
+function showView(view) {
+  const isHome = view === 'home';
+  document.getElementById('view-home').classList.toggle('hidden', !isHome);
+  document.getElementById('view-encounter').classList.toggle('hidden', isHome);
+  document.getElementById('breadcrumb').textContent = isHome ? 'Dashboard' : 'Encounter';
+
+  document.getElementById('nav-home').className = isHome
+    ? 'flex items-center gap-3 px-3 py-2 rounded-lg bg-indigo-600 font-medium mb-1'
+    : 'flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 mb-1';
+  document.getElementById('nav-encounter').className = isHome
+    ? 'flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 mb-1'
+    : 'flex items-center gap-3 px-3 py-2 rounded-lg bg-indigo-600 font-medium mb-1';
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function startNewEncounter() {
+  currentVisitId = null;
+  currentSoap = null;
+  currentConsultLetter = null;
+  currentAvs = null;
+  currentTranscript = '';
+  audioBlob = null;
+
+  document.getElementById('review-section').classList.add('hidden');
+  document.getElementById('soap-section').classList.add('hidden');
+  document.getElementById('audio-preview').classList.add('hidden');
+  document.getElementById('upload-btn').disabled = true;
+  document.getElementById('record-status').textContent = 'Tap to start recording';
+  setSoapAudio(null);
+  clearLiveTranscript();
+  showView('encounter');
+}
+
+// ── Document tabs ──
+function showDocTab(tab) {
+  ['consult', 'soap', 'avs', 'transcript'].forEach((t) => {
+    document.getElementById('doc-' + t).classList.toggle('hidden', t !== tab);
+    document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+  });
+}
+
+function emailTranscript() {
+  const name = (currentPatient && currentPatient.name) || 'patient';
+  const subject = 'Encounter transcript - ' + name;
+  const body = currentTranscript || '(no transcript available)';
+  window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+}
 
 // ── Visit History ──
 function escapeHtml(str) {
@@ -106,47 +159,68 @@ async function loadVisitHistory() {
     visitHistoryCache = localVisits;
   }
   saveLocalHistory(visitHistoryCache);
-  renderVisitHistory();
+  renderEncounterTable();
+  updateStats();
 }
 
-function renderVisitHistory() {
-  const list = document.getElementById('visit-history-list');
-  list.innerHTML = '';
+function displayNameFor(v) {
+  if (v.patientName) return escapeHtml(v.patientName);
+  const guessed = extractDisplayName(v.transcript);
+  return guessed
+    ? escapeHtml(guessed) + ' <span class="text-slate-400 font-normal text-xs">(from transcript)</span>'
+    : '<span class="text-slate-400">Unknown patient</span>';
+}
 
-  if (!visitHistoryCache.length) {
-    const empty = document.createElement('p');
-    empty.id = 'visit-history-empty';
-    empty.className = 'text-sm text-slate-400';
-    empty.textContent = 'No visits yet';
-    list.appendChild(empty);
-    return;
+function chiefComplaintFor(v) {
+  // The consult letter's DIAGNOSES line is the most "chief complaint"-shaped
+  // thing we generate; fall back to the raw transcript when it isn't there.
+  if (v.consultLetter && v.consultLetter.DIAGNOSES) {
+    return v.consultLetter.DIAGNOSES.split('\n')
+      .map((l) => l.replace(/^\d+\.\s*/, ''))
+      .join(', ');
   }
+  return v.transcript || '';
+}
 
-  visitHistoryCache.forEach((v) => {
-    const btn = document.createElement('button');
-    const isActive = v.visitId === currentVisitId;
-    btn.className = 'w-full text-left p-2 rounded-lg border transition-colors ' +
-      (isActive ? 'bg-blue-50 border-blue-200' : 'border-transparent hover:bg-slate-50 hover:border-slate-200');
-    btn.onclick = () => loadHistoryItem(v.visitId);
+function updateStats() {
+  const count = visitHistoryCache.length;
+  document.getElementById('stat-completed').textContent = count;
+  // 18 min saved per encounter (matches the "Per Encounter" tile), shown in hours.
+  document.getElementById('stat-time-saved').textContent = ((count * 18) / 60).toFixed(1);
+}
+
+function renderEncounterTable() {
+  const tbody = document.getElementById('encounter-tbody');
+  const empty = document.getElementById('encounter-empty');
+  const query = (document.getElementById('encounter-search').value || '').toLowerCase();
+
+  const rows = visitHistoryCache.filter((v) => {
+    if (!query) return true;
+    return ((v.patientName || '') + ' ' + (v.transcript || '') + ' ' + chiefComplaintFor(v))
+      .toLowerCase().includes(query);
+  });
+
+  tbody.innerHTML = '';
+  empty.classList.toggle('hidden', rows.length > 0);
+
+  rows.forEach((v, i) => {
+    const tr = document.createElement('tr');
+    tr.className = 'border-t border-slate-100 hover:bg-slate-50 cursor-pointer';
+    tr.onclick = () => loadHistoryItem(v.visitId);
 
     const dateStr = v.createdAt
-      ? new Date(v.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      ? new Date(v.createdAt).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
       : '';
-    const chief = (v.soap && v.soap.Subjective) ? v.soap.Subjective : (v.transcript || '');
+    const num = String(rows.length - i).padStart(3, '0');
 
-    const guessedName = v.patientName ? '' : extractDisplayName(v.transcript);
-    const nameLabel = v.patientName
-      ? escapeHtml(v.patientName)
-      : guessedName
-        ? escapeHtml(guessedName) + ' <span class="text-slate-400 font-normal">(from transcript)</span>'
-        : 'Unknown patient';
+    tr.innerHTML =
+      '<td class="px-5 py-3 text-indigo-600 font-medium whitespace-nowrap"># ' + num + '</td>' +
+      '<td class="px-5 py-3 font-medium text-slate-700">' + displayNameFor(v) + '</td>' +
+      '<td class="px-5 py-3 text-slate-600">' + escapeHtml(chiefComplaintFor(v).slice(0, 90)) + '</td>' +
+      '<td class="px-5 py-3"><span class="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700 font-medium">Completed</span></td>' +
+      '<td class="px-5 py-3 text-slate-500 whitespace-nowrap">' + escapeHtml(dateStr) + '</td>';
 
-    btn.innerHTML =
-      '<p class="text-sm font-medium text-slate-700 truncate">' + nameLabel + '</p>' +
-      '<p class="text-xs text-slate-400">' + escapeHtml(dateStr) + '</p>' +
-      '<p class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(chief.slice(0, 70)) + '</p>';
-
-    list.appendChild(btn);
+    tbody.appendChild(tr);
   });
 }
 
@@ -156,13 +230,15 @@ function loadHistoryItem(visitId) {
 
   currentVisitId = v.visitId;
   currentSoap = v.soap;
+  currentConsultLetter = v.consultLetter || null;
+  currentAvs = v.avs || null;
+  currentTranscript = v.transcript || '';
   currentSource = v.source;
 
+  showView('encounter');
   document.getElementById('review-section').classList.add('hidden');
   displaySOAP(v.soap, v.source, null);
   setSoapAudio(v.audioBase64 ? 'data:' + (v.audioMimeType || 'audio/webm') + ';base64,' + v.audioBase64 : null);
-  renderVisitHistory();
-  document.getElementById('soap-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ── Backend Status ──
@@ -482,6 +558,9 @@ async function generateSoapFromTranscript() {
     if (data.error) throw new Error(data.error);
 
     currentSoap = data.soap;
+    currentConsultLetter = data.consultLetter || null;
+    currentAvs = data.avs || null;
+    currentTranscript = transcript;
     displaySOAP(data.soap, data.source, currentHint);
     setSoapAudio(audioBlob ? URL.createObjectURL(audioBlob) : null);
     loadVisitHistory();
@@ -496,13 +575,85 @@ async function generateSoapFromTranscript() {
 }
 
 // ── Display SOAP ──
+// Section order for the consult letter, matching the clinic's preferred layout.
+const CONSULT_SECTIONS = [
+  'DIAGNOSES',
+  'RECOMMENDATIONS',
+  'HISTORY OF PRESENTING ILLNESS',
+  'MEDICATIONS',
+  'PHYSICAL EXAMINATION',
+  'ASSESSMENT'
+];
+
+function renderConsultLetter(letter) {
+  const el = document.getElementById('doc-consult');
+  el.innerHTML = '';
+  if (!letter) {
+    el.innerHTML = '<p class="text-slate-400 text-sm">No consult letter available for this encounter.</p>';
+    return;
+  }
+
+  CONSULT_SECTIONS.forEach((section) => {
+    if (!letter[section]) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML =
+      '<h3 class="font-semibold text-slate-700 text-sm tracking-wide">' + escapeHtml(section) + ':</h3>' +
+      '<p class="text-slate-600 mt-1 whitespace-pre-wrap">' + escapeHtml(letter[section]) + '</p>';
+    el.appendChild(wrap);
+  });
+
+  if (letter.footer) {
+    const footer = document.createElement('div');
+    footer.className = 'pt-4 mt-4 border-t border-slate-100';
+    footer.innerHTML = '<p class="text-slate-500 text-sm whitespace-pre-wrap">' + escapeHtml(letter.footer) + '</p>';
+    el.appendChild(footer);
+  }
+}
+
+function renderAVS(avs) {
+  const el = document.getElementById('doc-avs');
+  el.innerHTML = '';
+  if (!avs) {
+    el.innerHTML = '<p class="text-slate-400 text-sm">No after-visit summary available for this encounter.</p>';
+    return;
+  }
+
+  const parts = [
+    ['', avs.greeting],
+    ['What we discussed', avs.whatWeDiscussed],
+    ['What to do next', avs.whatToDo]
+  ];
+
+  parts.forEach(([heading, body]) => {
+    if (!body) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML =
+      (heading ? '<h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">' + escapeHtml(heading) + '</h3>' : '') +
+      '<p class="text-slate-600 mt-1 whitespace-pre-wrap">' + escapeHtml(body) + '</p>';
+    el.appendChild(wrap);
+  });
+
+  if (avs.footer) {
+    const footer = document.createElement('div');
+    footer.className = 'pt-4 mt-4 border-t border-slate-100';
+    footer.innerHTML = '<p class="text-slate-500 text-sm whitespace-pre-wrap">' + escapeHtml(avs.footer) + '</p>';
+    el.appendChild(footer);
+  }
+}
+
 function displaySOAP(soap, source, hint) {
   document.getElementById('soap-section').classList.remove('hidden');
   document.getElementById('soap-subjective').textContent = soap.Subjective || '(empty)';
   document.getElementById('soap-objective').textContent = soap.Objective || '(empty)';
   document.getElementById('soap-assessment').textContent = soap.Assessment || '(empty)';
   document.getElementById('soap-plan').textContent = soap.Plan || '(empty)';
-  document.getElementById('soap-transcript').textContent = soap.transcript || '(no transcript)';
+  document.getElementById('soap-transcript').textContent = soap.transcript || currentTranscript || '(no transcript)';
+  document.getElementById('soap-footer').textContent =
+    (currentConsultLetter && currentConsultLetter.footer) || (currentAvs && currentAvs.footer) || '';
+
+  renderConsultLetter(currentConsultLetter);
+  renderAVS(currentAvs);
+  showDocTab('consult');
 
   const modeBadge = document.getElementById('soap-mode');
   const sourceLabel = document.getElementById('soap-source');

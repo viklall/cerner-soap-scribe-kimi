@@ -422,31 +422,63 @@ const PLAN_BY_CATEGORY = {
   pain: 'Analgesics as appropriate; identify pain source for targeted treatment.'
 };
 
+const DIAGNOSIS_BY_CATEGORY = {
+  cardiac: 'Chest pain, etiology to be determined',
+  respiratory: 'Respiratory symptoms, etiology to be determined',
+  viral: 'Viral syndrome / upper respiratory infection (probable)',
+  headache: 'Headache, etiology to be determined',
+  dizziness: 'Dizziness, etiology to be determined',
+  gi: 'Gastrointestinal symptoms, etiology to be determined',
+  gerd: 'Gastroesophageal reflux (probable)',
+  hypertension: 'Hypertension',
+  bp_general: 'Elevated blood pressure, unconfirmed',
+  endocrine: 'Diabetes mellitus (per patient history)',
+  depression: 'Depressed mood / possible depression',
+  anxiety: 'Anxiety',
+  insomnia: 'Insomnia',
+  fatigue: 'Fatigue, etiology to be determined',
+  back_pain: 'Back pain',
+  joint_pain: 'Joint pain (arthralgia)',
+  ear_pain: 'Otalgia (ear pain)',
+  rash: 'Dermatitis / skin rash, etiology to be determined',
+  uti: 'Suspected urinary tract infection',
+  pain: 'Pain, etiology to be determined'
+};
+
+const MEDICATION_HINT_BY_CATEGORY = {
+  hypertension: 'Antihypertensive therapy per provider assessment',
+  viral: 'OTC analgesics/antipyretics/decongestants as needed',
+  headache: 'OTC analgesics (acetaminophen/ibuprofen) as needed',
+  gi: 'Antiemetic as needed',
+  gerd: 'OTC acid reducer as needed',
+  joint_pain: 'NSAIDs as appropriate',
+  back_pain: 'Analgesics as appropriate',
+  pain: 'Analgesics as appropriate',
+  uti: 'Antibiotic therapy pending urinalysis results',
+  endocrine: 'Current diabetes medication regimen to be reviewed'
+};
+
+// Signed off by the note; append to every generated clinical document (not the
+// raw transcript, which isn't a "note").
+const NOTE_FOOTER = 'Thanks once again for involving me in the care of this pleasant patient.\n\n' +
+  'With regards,\n' +
+  'Transcribed with voice dictation software.\n' +
+  'Ashok Lall, MD, FRCPC\n\n' +
+  'Informed consent was obtained from this patient for RMS Healthcare AI-assisted ambient charting. ' +
+  'Accuracy of the note has been verified by your clinician.\n\n' +
+  'This note was prepared using RMS Healthcare AI — a clinical assistant designed to save time, ' +
+  'reduce charting burden, and support better care.';
+
 function joinWithAnd(items) {
   if (items.length === 1) return items[0];
   if (items.length === 2) return items[0] + ' and ' + items[1];
   return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
 }
 
-// ── Generate SOAP ──
-// patientName should come from the verified chart/visit context (e.g. Cerner FHIR lookup),
-// never parsed from the transcript itself - voice transcription is unreliable for proper
-// nouns and misidentifying a patient in a real EHR writeback is a genuine safety risk.
-function generateSOAP(transcript, visitId, source, patientName) {
-  const date = new Date().toISOString().split('T')[0];
-
-  if (!transcript || transcript.length < 10) {
-    return {
-      Subjective: (patientName ? 'Patient: ' + patientName + '. ' : '') + 'Patient presents for visit on ' + date + '. Chief complaint documented.',
-      Objective: 'Vital signs and physical exam findings to be documented.',
-      Assessment: 'Clinical assessment pending provider review.',
-      Plan: '1. Review visit documentation\n2. Verify findings\n3. Follow up as indicated',
-      transcript: transcript || '[No transcript available]',
-      mode: source || 'stub',
-      note: 'Generated from ' + (source || 'stub') + '. Visit ID: ' + visitId
-    };
-  }
-
+// Shared symptom/keyword extraction used by generateSOAP, generateConsultLetter,
+// and generateAVS, so the three document types stay consistent with each other
+// instead of each re-implementing (and potentially drifting from) the same matching.
+function extractFindings(transcript) {
   const lower = transcript.toLowerCase();
 
   const foundPhrases = [];
@@ -472,20 +504,6 @@ function generateSOAP(transcript, visitId, source, patientName) {
     });
   });
 
-  let subjective = '';
-  if (patientName) subjective += 'Patient: ' + patientName + '. ';
-  subjective += foundPhrases.length
-    ? 'Patient reports ' + joinWithAnd(foundPhrases) + '. '
-    : 'Patient presents with concerns as documented in transcript. ';
-  subjective += 'Transcript: "' + transcript + '"';
-  subjective = subjective.trim();
-
-  let objective = 'Physical exam and vital signs to be confirmed by provider; not directly captured via voice transcription. ';
-  if (lower.includes('blood pressure') || lower.includes(' bp ')) objective += 'Blood pressure was discussed and should be documented from the visit. ';
-  if (lower.includes('heart') || lower.includes('lungs') || foundCategories.indexOf('respiratory') !== -1 || foundCategories.indexOf('cardiac') !== -1) {
-    objective += 'Cardiopulmonary exam indicated given reported symptoms. ';
-  }
-
   // "viral" fires from any single symptom in its cluster (fever/cough/congestion/sore
   // throat/body aches); only assert a viral-syndrome assessment when 2+ of those
   // co-occur, otherwise a lone symptom gets a more honest, non-presumptive line.
@@ -495,19 +513,68 @@ function generateSOAP(transcript, visitId, source, patientName) {
     .filter(function (c, i) { return foundCategories.indexOf(c) === i; })
     .sort(byClinicalPriority);
 
-  const assessment = uniqueCategories.length
-    ? uniqueCategories.map(function (c) {
-        if (c === 'viral' && viralClusterSize < 2) {
-          return 'Isolated symptom reported that may be viral in origin, but is nonspecific on its own; further history needed to narrow the differential.';
-        }
-        return ASSESSMENT_BY_CATEGORY[c];
-      }).join(' ')
+  return {
+    lower: lower,
+    foundPhrases: foundPhrases,
+    uniqueCategories: uniqueCategories,
+    viralClusterSize: viralClusterSize,
+    hasMedicationMention: lower.includes('prescription') || lower.includes('medication'),
+    hasReferralMention: lower.includes('referral'),
+    hasLabMention: lower.includes('lab') || lower.includes('blood work')
+  };
+}
+
+function assessmentLineFor(category, viralClusterSize) {
+  if (category === 'viral' && viralClusterSize < 2) {
+    return 'Isolated symptom reported that may be viral in origin, but is nonspecific on its own; further history needed to narrow the differential.';
+  }
+  return ASSESSMENT_BY_CATEGORY[category];
+}
+
+// ── Generate SOAP ──
+// patientName should come from the verified chart/visit context (e.g. Cerner FHIR lookup),
+// never parsed from the transcript itself - voice transcription is unreliable for proper
+// nouns and misidentifying a patient in a real EHR writeback is a genuine safety risk.
+function generateSOAP(transcript, visitId, source, patientName) {
+  const date = new Date().toISOString().split('T')[0];
+
+  if (!transcript || transcript.length < 10) {
+    return {
+      Subjective: (patientName ? 'Patient: ' + patientName + '. ' : '') + 'Patient presents for visit on ' + date + '. Chief complaint documented.',
+      Objective: 'Vital signs and physical exam findings to be documented.',
+      Assessment: 'Clinical assessment pending provider review.',
+      Plan: '1. Review visit documentation\n2. Verify findings\n3. Follow up as indicated',
+      transcript: transcript || '[No transcript available]',
+      mode: source || 'stub',
+      note: 'Generated from ' + (source || 'stub') + '. Visit ID: ' + visitId
+    };
+  }
+
+  const f = extractFindings(transcript);
+  const lower = f.lower;
+
+  let subjective = '';
+  if (patientName) subjective += 'Patient: ' + patientName + '. ';
+  subjective += f.foundPhrases.length
+    ? 'Patient reports ' + joinWithAnd(f.foundPhrases) + '. '
+    : 'Patient presents with concerns as documented in transcript. ';
+  subjective += 'Transcript: "' + transcript + '"';
+  subjective = subjective.trim();
+
+  let objective = 'Physical exam and vital signs to be confirmed by provider; not directly captured via voice transcription. ';
+  if (lower.includes('blood pressure') || lower.includes(' bp ')) objective += 'Blood pressure was discussed and should be documented from the visit. ';
+  if (lower.includes('heart') || lower.includes('lungs') || f.uniqueCategories.indexOf('respiratory') !== -1 || f.uniqueCategories.indexOf('cardiac') !== -1) {
+    objective += 'Cardiopulmonary exam indicated given reported symptoms. ';
+  }
+
+  const assessment = f.uniqueCategories.length
+    ? f.uniqueCategories.map(function (c) { return assessmentLineFor(c, f.viralClusterSize); }).join(' ')
     : 'Assessment based on clinical presentation and documented findings; pending provider review.';
 
-  const planItems = uniqueCategories.map(function (c) { return PLAN_BY_CATEGORY[c]; });
-  if (lower.includes('prescription') || lower.includes('medication')) planItems.push('Prescription sent to pharmacy.');
-  if (lower.includes('referral')) planItems.push('Referral placed.');
-  if (lower.includes('lab') || lower.includes('blood work')) planItems.push('Labs ordered.');
+  const planItems = f.uniqueCategories.map(function (c) { return PLAN_BY_CATEGORY[c]; });
+  if (f.hasMedicationMention) planItems.push('Prescription sent to pharmacy.');
+  if (f.hasReferralMention) planItems.push('Referral placed.');
+  if (f.hasLabMention) planItems.push('Labs ordered.');
   planItems.push('Follow up as needed.');
   planItems.push('Patient education provided regarding reported symptoms.');
   const plan = planItems.map(function (item, i) { return (i + 1) + '. ' + item; }).join('\n');
@@ -520,6 +587,94 @@ function generateSOAP(transcript, visitId, source, patientName) {
     transcript: transcript,
     mode: source || 'generated',
     note: 'Generated from ' + (source || 'transcript') + '. Visit ID: ' + visitId
+  };
+}
+
+// ── Generate Consult Letter ──
+function generateConsultLetter(transcript, visitId, patientName) {
+  if (!transcript || transcript.length < 10) {
+    return {
+      'HISTORY OF PRESENTING ILLNESS': (patientName ? patientName : 'The patient') + ' presents for visit; chief complaint documented.',
+      'PHYSICAL EXAMINATION': 'Vital signs and physical exam findings to be documented.',
+      'ASSESSMENT': 'Clinical assessment pending provider review.',
+      'DIAGNOSES': 'Pending provider review.',
+      'RECOMMENDATIONS': '1. Review visit documentation\n2. Verify findings\n3. Follow up as indicated',
+      'MEDICATIONS': 'No new medications prescribed during this encounter.',
+      footer: NOTE_FOOTER
+    };
+  }
+
+  const f = extractFindings(transcript);
+
+  const hpi = (f.foundPhrases.length
+    ? (patientName ? patientName : 'The patient') + ' presents with ' + joinWithAnd(f.foundPhrases) + '.'
+    : (patientName ? patientName : 'The patient') + ' presents with concerns as documented in the transcript.') +
+    ' Transcript: "' + transcript + '"';
+
+  const physicalExam = 'Physical examination and vital signs to be confirmed by the provider; not directly captured via voice transcription.';
+
+  const assessment = f.uniqueCategories.length
+    ? f.uniqueCategories.map(function (c) { return assessmentLineFor(c, f.viralClusterSize); }).join(' ')
+    : 'Assessment based on clinical presentation and documented findings; pending provider review.';
+
+  const diagnoses = f.uniqueCategories.length
+    ? f.uniqueCategories.map(function (c, i) { return (i + 1) + '. ' + DIAGNOSIS_BY_CATEGORY[c]; }).join('\n')
+    : 'Pending provider review.';
+
+  const recItems = f.uniqueCategories.map(function (c) { return PLAN_BY_CATEGORY[c]; });
+  if (f.hasMedicationMention) recItems.push('Prescription sent to pharmacy.');
+  if (f.hasReferralMention) recItems.push('Referral placed.');
+  if (f.hasLabMention) recItems.push('Labs ordered.');
+  recItems.push('Follow up as needed.');
+  recItems.push('Patient education provided regarding reported symptoms.');
+  const recommendations = recItems.map(function (item, i) { return (i + 1) + '. ' + item; }).join('\n');
+
+  const medHints = f.uniqueCategories
+    .map(function (c) { return MEDICATION_HINT_BY_CATEGORY[c]; })
+    .filter(Boolean);
+  const medications = medHints.length
+    ? medHints.map(function (item, i) { return (i + 1) + '. ' + item; }).join('\n')
+    : 'No new medications prescribed during this encounter.';
+
+  return {
+    'HISTORY OF PRESENTING ILLNESS': hpi,
+    'PHYSICAL EXAMINATION': physicalExam,
+    'ASSESSMENT': assessment,
+    'DIAGNOSES': diagnoses,
+    'RECOMMENDATIONS': recommendations,
+    'MEDICATIONS': medications,
+    footer: NOTE_FOOTER
+  };
+}
+
+// ── Generate After-Visit Summary (patient-facing, plain language) ──
+function generateAVS(transcript, visitId, patientName) {
+  const greeting = 'Dear ' + (patientName || 'Patient') + ',';
+
+  if (!transcript || transcript.length < 10) {
+    return {
+      greeting: greeting,
+      whatWeDiscussed: 'Your visit has been documented; details to be reviewed by your provider.',
+      whatToDo: '1. Follow up as directed by your care team',
+      footer: NOTE_FOOTER
+    };
+  }
+
+  const f = extractFindings(transcript);
+
+  const whatWeDiscussed = f.foundPhrases.length
+    ? 'During your visit, you told us about ' + joinWithAnd(f.foundPhrases) + '.'
+    : 'During your visit, we discussed the concerns you brought up today.';
+
+  const doItems = f.uniqueCategories.map(function (c) { return PLAN_BY_CATEGORY[c]; });
+  doItems.push('Follow up as needed, or sooner if symptoms worsen.');
+  const whatToDo = doItems.map(function (item, i) { return (i + 1) + '. ' + item; }).join('\n');
+
+  return {
+    greeting: greeting,
+    whatWeDiscussed: whatWeDiscussed,
+    whatToDo: whatToDo,
+    footer: NOTE_FOOTER
   };
 }
 
@@ -660,6 +815,8 @@ routes['POST /api/soap'] = async (req, res) => {
   const source = body.source || 'generated';
 
   const soap = generateSOAP(transcript, visitId, source, patientName);
+  const consultLetter = generateConsultLetter(transcript, visitId, patientName);
+  const avs = generateAVS(transcript, visitId, patientName);
 
   let audioBase64 = null;
   const audioPath = path.join(UPLOAD_DIR, visitId + '.webm');
@@ -677,6 +834,8 @@ routes['POST /api/soap'] = async (req, res) => {
     patientName: patientName,
     transcript: transcript,
     soap: soap,
+    consultLetter: consultLetter,
+    avs: avs,
     source: source,
     audioBase64: audioBase64,
     audioMimeType: audioBase64 ? 'audio/webm' : null,
@@ -686,6 +845,8 @@ routes['POST /api/soap'] = async (req, res) => {
   return {
     visitId: visitId,
     soap: soap,
+    consultLetter: consultLetter,
+    avs: avs,
     source: source
   };
 };

@@ -18,193 +18,290 @@
     }
     .transcript-line { animation: fadeIn 0.3s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .doc-tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
   </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
-  <div class="max-w-6xl mx-auto px-4 py-8">
+<body class="bg-slate-100 min-h-screen">
+  <div class="flex min-h-screen">
 
-    <!-- Header -->
-    <header class="mb-8">
-      <div class="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 class="text-3xl font-bold text-slate-900">RMS Healthcare Scribe</h1>
-          <p class="text-slate-500 mt-1">Audio capture → AI transcription → Cerner writeback</p>
+    <!-- Sidebar -->
+    <aside class="w-60 flex-shrink-0 bg-indigo-500 text-white hidden lg:flex lg:flex-col">
+      <div class="p-5">
+        <div class="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center mb-6">
+          <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+          </svg>
+        </div>
+        <div class="bg-white/15 rounded-lg px-3 py-2 mb-6">
+          <span class="text-sm font-medium">👋 Getting started</span>
+        </div>
+      </div>
+
+      <nav class="px-3 flex-1 text-sm">
+        <p class="px-2 text-[11px] uppercase tracking-wider text-white/60 mb-2">Core Workflow</p>
+        <a href="#" onclick="showView('home'); return false;" id="nav-home"
+          class="flex items-center gap-3 px-3 py-2 rounded-lg bg-indigo-600 font-medium mb-1">Home</a>
+        <a href="#" onclick="showView('encounter'); return false;" id="nav-encounter"
+          class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 mb-1">Chart Prep</a>
+
+        <p class="px-2 text-[11px] uppercase tracking-wider text-white/60 mt-6 mb-2">Notes &amp; Templates</p>
+        <span class="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70">Note Preferences</span>
+        <span class="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70">Templates</span>
+
+        <p class="px-2 text-[11px] uppercase tracking-wider text-white/60 mt-6 mb-2">Clinic</p>
+        <span class="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70">Privacy &amp; Compliance</span>
+        <span class="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70">Account</span>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <div class="flex-1 min-w-0 flex flex-col">
+
+      <!-- Top bar -->
+      <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between flex-wrap gap-3">
+        <div class="text-sm text-slate-500">
+          Home <span class="text-slate-300">&rsaquo;</span> <span class="text-indigo-600 font-medium" id="breadcrumb">Dashboard</span>
         </div>
         <div class="flex items-center gap-3">
           <div id="backend-status" class="text-xs text-slate-400"></div>
           <div id="cerner-status" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 text-sm">
             <span class="w-2 h-2 rounded-full bg-slate-400" id="status-dot"></span>
             <span id="status-text">Cerner: Not connected</span>
-            <button onclick="connectCerner()" class="ml-2 text-blue-600 hover:text-blue-800 font-medium">Connect</button>
+            <button onclick="connectCerner()" class="ml-2 text-indigo-600 hover:text-indigo-800 font-medium">Connect</button>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
 
-    <div class="flex flex-col lg:flex-row gap-6 items-start">
+      <div class="p-6 flex-1">
 
-      <!-- Visit History Sidebar -->
-      <aside class="w-full lg:w-72 flex-shrink-0">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 lg:sticky lg:top-8">
-          <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Visit History</h2>
-          <div id="visit-history-list" class="space-y-1 max-h-[75vh] overflow-y-auto">
-            <p id="visit-history-empty" class="text-sm text-slate-400">No visits yet</p>
-          </div>
-        </div>
-      </aside>
-
-      <!-- Main -->
-      <main class="flex-1 min-w-0 w-full">
-
-    <!-- Patient Info Panel (appears when connected) -->
-    <div id="patient-panel" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6 hidden">
-      <div class="flex items-start justify-between">
-        <div>
-          <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Patient</h2>
-          <div class="flex items-center gap-4 flex-wrap">
-            <div>
-              <p id="pt-name" class="text-lg font-semibold text-slate-800">—</p>
-              <p id="pt-dob" class="text-sm text-slate-500">—</p>
-            </div>
-            <div class="h-8 w-px bg-slate-200 hidden sm:block"></div>
-            <div>
-              <p id="pt-gender" class="text-sm text-slate-600">—</p>
-              <p id="pt-phone" class="text-sm text-slate-500">—</p>
-            </div>
-            <div class="h-8 w-px bg-slate-200 hidden sm:block"></div>
-            <div>
-              <p id="pt-mrn" class="text-sm text-slate-600 font-mono">—</p>
-              <p id="pt-address" class="text-sm text-slate-500">—</p>
+        <!-- ══ HOME VIEW ══ -->
+        <div id="view-home">
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+            <div class="flex items-start justify-between flex-wrap gap-6">
+              <div>
+                <h1 class="text-3xl font-bold text-slate-900 mb-4">Hello Dr. Lall!</h1>
+                <button onclick="startNewEncounter()"
+                  class="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                  + New Encounter
+                </button>
+              </div>
+              <div class="flex gap-8 flex-wrap">
+                <div>
+                  <p class="text-sm text-slate-500 mb-1">📋 Completed</p>
+                  <p class="text-3xl font-bold text-slate-900"><span id="stat-completed">0</span>
+                    <span class="text-base font-normal text-slate-500">Encounters</span></p>
+                </div>
+                <div>
+                  <p class="text-sm text-slate-500 mb-1">🕐 Time Saved</p>
+                  <p class="text-3xl font-bold text-slate-900"><span id="stat-time-saved">0</span>
+                    <span class="text-base font-normal text-slate-500">Hrs</span></p>
+                </div>
+                <div>
+                  <p class="text-sm text-slate-500 mb-1">📄 Per Encounter</p>
+                  <p class="text-3xl font-bold text-slate-900">18
+                    <span class="text-base font-normal text-slate-500">Mins</span></p>
+                </div>
+              </div>
             </div>
           </div>
+
+          <!-- Encounter table -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+              <h2 class="font-semibold text-slate-800">Encounters</h2>
+              <input id="encounter-search" oninput="renderEncounterTable()" placeholder="Search CC or Patient"
+                class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-indigo-50/60 text-slate-600">
+                  <tr>
+                    <th class="text-left font-semibold px-5 py-3">Encounter</th>
+                    <th class="text-left font-semibold px-5 py-3">Name</th>
+                    <th class="text-left font-semibold px-5 py-3">Chief Complaint</th>
+                    <th class="text-left font-semibold px-5 py-3">Status</th>
+                    <th class="text-left font-semibold px-5 py-3">Create Time</th>
+                  </tr>
+                </thead>
+                <tbody id="encounter-tbody"></tbody>
+              </table>
+            </div>
+            <p id="encounter-empty" class="text-sm text-slate-400 px-5 py-8 text-center">
+              No encounters yet — click “+ New Encounter” to record one.
+            </p>
+          </div>
         </div>
-        <span id="pt-mock-badge" class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium hidden">Mock</span>
+
+        <!-- ══ ENCOUNTER VIEW ══ -->
+        <div id="view-encounter" class="hidden max-w-4xl">
+
+          <button onclick="showView('home')" class="text-sm text-indigo-600 hover:text-indigo-800 mb-4">&larr; Back to dashboard</button>
+
+          <!-- Patient Info Panel -->
+          <div id="patient-panel" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6 hidden">
+            <div class="flex items-start justify-between">
+              <div>
+                <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Patient</h2>
+                <div class="flex items-center gap-4 flex-wrap">
+                  <div>
+                    <p id="pt-name" class="text-lg font-semibold text-slate-800">—</p>
+                    <p id="pt-dob" class="text-sm text-slate-500">—</p>
+                  </div>
+                  <div class="h-8 w-px bg-slate-200 hidden sm:block"></div>
+                  <div>
+                    <p id="pt-gender" class="text-sm text-slate-600">—</p>
+                    <p id="pt-phone" class="text-sm text-slate-500">—</p>
+                  </div>
+                  <div class="h-8 w-px bg-slate-200 hidden sm:block"></div>
+                  <div>
+                    <p id="pt-mrn" class="text-sm text-slate-600 font-mono">—</p>
+                    <p id="pt-address" class="text-sm text-slate-500">—</p>
+                  </div>
+                </div>
+              </div>
+              <span id="pt-mock-badge" class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium hidden">Mock</span>
+            </div>
+          </div>
+
+          <!-- Audio Capture -->
+          <div id="capture-card" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">1. Record Visit Audio</h2>
+            <div class="flex flex-col items-center gap-4">
+              <div class="relative">
+                <div id="pulse-ring" class="absolute inset-0 rounded-full bg-red-500 hidden"></div>
+                <button id="record-btn" onclick="toggleRecord()"
+                  class="relative w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-all shadow-lg">
+                  <svg id="mic-icon" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                  </svg>
+                  <svg id="stop-icon" class="w-8 h-8 hidden" fill="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="6" width="12" height="12" rx="2"/>
+                  </svg>
+                </button>
+              </div>
+
+              <p id="record-status" class="text-slate-500 text-sm">Tap to start recording</p>
+
+              <div id="waveform" class="flex items-end gap-1 h-8 hidden">
+                <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0s"></div>
+                <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.1s"></div>
+                <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.2s"></div>
+                <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.3s"></div>
+                <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.4s"></div>
+              </div>
+
+              <div id="timer" class="text-2xl font-mono text-slate-700 hidden">00:00</div>
+
+              <div id="live-transcript-box" class="w-full max-w-lg bg-slate-50 rounded-lg p-3 hidden">
+                <p class="text-xs text-slate-400 uppercase tracking-wide mb-1">Live Transcript</p>
+                <p id="live-transcript" class="text-sm text-slate-700 min-h-[1.5rem]"></p>
+              </div>
+
+              <audio id="audio-preview" controls class="hidden w-full max-w-md mt-2"></audio>
+
+              <button id="upload-btn" onclick="uploadAudio()" disabled
+                class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                Transcribe
+              </button>
+            </div>
+          </div>
+
+          <!-- Review Transcript -->
+          <div id="review-section" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 hidden">
+            <div class="flex items-center justify-between mb-2">
+              <h2 class="text-lg font-semibold text-slate-800">2. Review Transcript</h2>
+              <span id="review-source" class="text-xs text-slate-400"></span>
+            </div>
+            <p class="text-sm text-slate-500 mb-3">Speech-to-text can mishear names and details — fix anything wrong below before generating the note.</p>
+            <textarea id="review-transcript" rows="4"
+              class="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+            <button id="generate-soap-btn" onclick="generateSoapFromTranscript()"
+              class="mt-3 px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+              Generate Notes
+            </button>
+          </div>
+
+          <!-- Generated Documents (tabbed) -->
+          <div id="soap-section" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 hidden">
+            <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+              <h2 class="text-lg font-semibold text-slate-800">3. Generated Documents</h2>
+              <div class="flex items-center gap-2">
+                <span id="soap-source" class="text-xs text-slate-400"></span>
+                <span id="soap-mode" class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium">Stub Mode</span>
+              </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="border-b border-slate-200 flex gap-6 mb-5 overflow-x-auto">
+              <button onclick="showDocTab('consult')" id="tab-consult"
+                class="doc-tab active whitespace-nowrap py-2 border-b-2 border-transparent text-sm font-medium text-slate-500 hover:text-slate-700">Consult Letter</button>
+              <button onclick="showDocTab('soap')" id="tab-soap"
+                class="doc-tab whitespace-nowrap py-2 border-b-2 border-transparent text-sm font-medium text-slate-500 hover:text-slate-700">SOAP Note</button>
+              <button onclick="showDocTab('avs')" id="tab-avs"
+                class="doc-tab whitespace-nowrap py-2 border-b-2 border-transparent text-sm font-medium text-slate-500 hover:text-slate-700">AVS</button>
+              <button onclick="showDocTab('transcript')" id="tab-transcript"
+                class="doc-tab whitespace-nowrap py-2 border-b-2 border-transparent text-sm font-medium text-slate-500 hover:text-slate-700">Encounter Transcript</button>
+            </div>
+
+            <!-- Consult Letter -->
+            <div id="doc-consult" class="doc-panel space-y-4"></div>
+
+            <!-- SOAP -->
+            <div id="doc-soap" class="doc-panel hidden space-y-4">
+              <div class="border-l-4 border-blue-400 pl-4">
+                <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Subjective</h3>
+                <p id="soap-subjective" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
+              </div>
+              <div class="border-l-4 border-green-400 pl-4">
+                <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Objective</h3>
+                <p id="soap-objective" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
+              </div>
+              <div class="border-l-4 border-yellow-400 pl-4">
+                <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Assessment</h3>
+                <p id="soap-assessment" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
+              </div>
+              <div class="border-l-4 border-purple-400 pl-4">
+                <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Plan</h3>
+                <p id="soap-plan" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
+              </div>
+              <div class="pt-4 border-t border-slate-100">
+                <p id="soap-footer" class="text-slate-500 text-sm whitespace-pre-wrap"></p>
+              </div>
+            </div>
+
+            <!-- AVS -->
+            <div id="doc-avs" class="doc-panel hidden space-y-4"></div>
+
+            <!-- Transcript -->
+            <div id="doc-transcript" class="doc-panel hidden">
+              <p id="soap-transcript" class="text-slate-600 text-sm whitespace-pre-wrap bg-slate-50 p-4 rounded"></p>
+              <audio id="soap-audio" controls class="hidden w-full mt-4"></audio>
+              <button onclick="emailTranscript()"
+                class="mt-4 px-5 py-2 bg-slate-700 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors text-sm">
+                ✉️ Email Transcript
+              </button>
+            </div>
+
+            <!-- Writeback -->
+            <div class="mt-6 pt-4 border-t border-slate-100">
+              <button id="writeback-btn" onclick="writebackToCerner()"
+                class="px-6 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors">
+                Write to Cerner
+              </button>
+              <p id="writeback-status" class="text-sm text-slate-500 mt-2"></p>
+            </div>
+          </div>
+
+          <!-- Loading -->
+          <div id="loading" class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center hidden">
+            <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+            <p class="text-slate-600">Processing audio through pipeline...</p>
+            <p id="loading-detail" class="text-slate-400 text-sm mt-1">This may take a moment</p>
+          </div>
+        </div>
+
       </div>
     </div>
-
-    <!-- Audio Capture -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-      <h2 class="text-lg font-semibold text-slate-800 mb-4">1. Record Visit Audio</h2>
-
-      <div class="flex flex-col items-center gap-4">
-        <!-- Record Button -->
-        <div class="relative">
-          <div id="pulse-ring" class="absolute inset-0 rounded-full bg-red-500 hidden"></div>
-          <button id="record-btn" onclick="toggleRecord()" 
-            class="relative w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-all shadow-lg">
-            <svg id="mic-icon" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-            </svg>
-            <svg id="stop-icon" class="w-8 h-8 hidden" fill="currentColor" viewBox="0 0 24 24">
-              <rect x="6" y="6" width="12" height="12" rx="2"/>
-            </svg>
-          </button>
-        </div>
-
-        <p id="record-status" class="text-slate-500 text-sm">Tap to start recording</p>
-
-        <!-- Waveform visualizer -->
-        <div id="waveform" class="flex items-end gap-1 h-8 hidden">
-          <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0s"></div>
-          <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.1s"></div>
-          <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.2s"></div>
-          <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.3s"></div>
-          <div class="w-1 bg-red-400 rounded wave-bar" style="animation-delay:0.4s"></div>
-        </div>
-
-        <!-- Timer -->
-        <div id="timer" class="text-2xl font-mono text-slate-700 hidden">00:00</div>
-
-        <!-- Live Transcript -->
-        <div id="live-transcript-box" class="w-full max-w-lg bg-slate-50 rounded-lg p-3 hidden">
-          <p class="text-xs text-slate-400 uppercase tracking-wide mb-1">Live Transcript</p>
-          <p id="live-transcript" class="text-sm text-slate-700 min-h-[1.5rem]"></p>
-        </div>
-
-        <!-- Audio preview -->
-        <audio id="audio-preview" controls class="hidden w-full max-w-md mt-2"></audio>
-
-        <!-- Upload -->
-        <button id="upload-btn" onclick="uploadAudio()" disabled
-          class="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-          Transcribe
-        </button>
-      </div>
-    </div>
-
-    <!-- Review Transcript -->
-    <div id="review-section" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 hidden">
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="text-lg font-semibold text-slate-800">2. Review Transcript</h2>
-        <span id="review-source" class="text-xs text-slate-400"></span>
-      </div>
-      <p class="text-sm text-slate-500 mb-3">Speech-to-text can mishear names and details - fix anything wrong below before generating the note.</p>
-      <textarea id="review-transcript" rows="4"
-        class="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"></textarea>
-      <button id="generate-soap-btn" onclick="generateSoapFromTranscript()"
-        class="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
-        Generate SOAP Note
-      </button>
-    </div>
-
-    <!-- SOAP Note -->
-    <div id="soap-section" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 hidden">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-slate-800">3. SOAP Note</h2>
-        <div class="flex items-center gap-2">
-          <span id="soap-source" class="text-xs text-slate-400"></span>
-          <span id="soap-mode" class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium">Stub Mode</span>
-        </div>
-      </div>
-
-      <div class="space-y-4">
-        <div class="border-l-4 border-blue-400 pl-4">
-          <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Subjective</h3>
-          <p id="soap-subjective" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
-        </div>
-        <div class="border-l-4 border-green-400 pl-4">
-          <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Objective</h3>
-          <p id="soap-objective" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
-        </div>
-        <div class="border-l-4 border-yellow-400 pl-4">
-          <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Assessment</h3>
-          <p id="soap-assessment" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
-        </div>
-        <div class="border-l-4 border-purple-400 pl-4">
-          <h3 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Plan</h3>
-          <p id="soap-plan" class="text-slate-600 mt-1 whitespace-pre-wrap"></p>
-        </div>
-      </div>
-
-      <!-- Audio -->
-      <audio id="soap-audio" controls class="hidden w-full mt-4"></audio>
-
-      <!-- Transcript -->
-      <details class="mt-4">
-        <summary class="text-sm text-slate-500 cursor-pointer hover:text-slate-700">View Full Transcript</summary>
-        <p id="soap-transcript" class="text-slate-500 text-sm mt-2 whitespace-pre-wrap bg-slate-50 p-3 rounded max-h-64 overflow-y-auto"></p>
-      </details>
-
-      <!-- Writeback -->
-      <div class="mt-6 pt-4 border-t border-slate-100">
-        <button id="writeback-btn" onclick="writebackToCerner()" 
-          class="px-6 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors">
-          Write to Cerner
-        </button>
-        <p id="writeback-status" class="text-sm text-slate-500 mt-2"></p>
-      </div>
-    </div>
-
-    <!-- Loading -->
-    <div id="loading" class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center hidden">
-      <div class="inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-      <p class="text-slate-600">Processing audio through pipeline...</p>
-      <p id="loading-detail" class="text-slate-400 text-sm mt-1">This may take a moment</p>
-    </div>
-
-      </main>
-    </div>
-
   </div>
 
   <script src="capture.js"></script>
