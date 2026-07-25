@@ -121,13 +121,13 @@ function serveStatic(reqPath, res) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-// ── Cloudflare Transcription ──
+// ── Cloudflare Transcription (raw binary, NOT base64 JSON) ──
 async function transcribeWithCloudflare(audioBuffer) {
   return new Promise((resolve, reject) => {
-    const base64Audio = audioBuffer.toString('base64');
-    const postData = JSON.stringify({ audio: base64Audio });
+    // Cloudflare Whisper expects RAW BINARY audio, not base64 JSON
+    // Send audio/webm bytes directly in the body
 
-    console.log('[Cloudflare] Sending ' + audioBuffer.length + ' bytes (' + base64Audio.length + ' base64 chars)');
+    console.log('[Cloudflare] Sending ' + audioBuffer.length + ' bytes of raw audio/webm');
 
     const options = {
       hostname: 'api.cloudflare.com',
@@ -135,8 +135,8 @@ async function transcribeWithCloudflare(audioBuffer) {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + CF_API_TOKEN,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
+        'Content-Type': 'audio/webm',
+        'Content-Length': audioBuffer.length
       },
       timeout: 120000
     };
@@ -172,7 +172,7 @@ async function transcribeWithCloudflare(audioBuffer) {
       console.error('[Cloudflare] Request timeout');
       reject(new Error('Cloudflare request timeout'));
     });
-    req.write(postData);
+    req.write(audioBuffer);
     req.end();
   });
 }
