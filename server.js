@@ -223,6 +223,18 @@ const SUPPRESSES = {
   ear_pain: ['pain']
 };
 
+// Acute/safety-relevant findings lead the note regardless of the order they were
+// mentioned in - a real note doesn't bury "chest pain" under "sleep difficulty"
+// just because sleep came up first in conversation.
+const CATEGORY_PRIORITY = [
+  'cardiac', 'respiratory', 'hypertension', 'depression', 'dizziness', 'anxiety',
+  'headache', 'gi', 'uti', 'endocrine', 'gerd', 'back_pain', 'joint_pain',
+  'ear_pain', 'fatigue', 'insomnia', 'rash', 'bp_general', 'viral', 'pain'
+];
+function byClinicalPriority(a, b) {
+  return CATEGORY_PRIORITY.indexOf(a) - CATEGORY_PRIORITY.indexOf(b);
+}
+
 const ASSESSMENT_BY_CATEGORY = {
   cardiac: 'Reported chest pain warrants prompt evaluation to rule out a cardiac cause.',
   respiratory: 'Respiratory symptoms reported; warrants further evaluation.',
@@ -333,9 +345,22 @@ function generateSOAP(transcript, visitId, source, patientName) {
     objective += 'Cardiopulmonary exam indicated given reported symptoms. ';
   }
 
-  const uniqueCategories = foundCategories.filter(function (c, i) { return foundCategories.indexOf(c) === i; });
+  // "viral" fires from any single symptom in its cluster (fever/cough/congestion/sore
+  // throat/body aches); only assert a viral-syndrome assessment when 2+ of those
+  // co-occur, otherwise a lone symptom gets a more honest, non-presumptive line.
+  const viralClusterSize = foundCategories.filter(function (c) { return c === 'viral'; }).length;
+
+  const uniqueCategories = foundCategories
+    .filter(function (c, i) { return foundCategories.indexOf(c) === i; })
+    .sort(byClinicalPriority);
+
   const assessment = uniqueCategories.length
-    ? uniqueCategories.map(function (c) { return ASSESSMENT_BY_CATEGORY[c]; }).join(' ')
+    ? uniqueCategories.map(function (c) {
+        if (c === 'viral' && viralClusterSize < 2) {
+          return 'Isolated symptom reported that may be viral in origin, but is nonspecific on its own; further history needed to narrow the differential.';
+        }
+        return ASSESSMENT_BY_CATEGORY[c];
+      }).join(' ')
     : 'Assessment based on clinical presentation and documented findings; pending provider review.';
 
   const planItems = uniqueCategories.map(function (c) { return PLAN_BY_CATEGORY[c]; });
