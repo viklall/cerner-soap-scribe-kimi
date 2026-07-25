@@ -182,6 +182,59 @@ async function transcribeWithCloudflare(audioBuffer) {
   });
 }
 
+// ── Clinical finding vocabulary: transcript keywords -> narrative phrase + category ──
+// Order matters where phrases overlap (e.g. 'high blood pressure' before 'blood pressure')
+// so the more specific match wins and the vaguer one is skipped.
+const CLINICAL_FINDINGS = [
+  { keys: ['chest pain'], phrase: 'chest pain', category: 'cardiac' },
+  { keys: ['shortness of breath', 'trouble breathing', 'breathing'], phrase: 'shortness of breath', category: 'respiratory' },
+  { keys: ['cough'], phrase: 'cough', category: 'respiratory' },
+  { keys: ['sore throat'], phrase: 'sore throat', category: 'viral' },
+  { keys: ['congestion', 'runny nose', 'stuffy nose', 'cold'], phrase: 'cold/upper respiratory symptoms', category: 'viral' },
+  { keys: ['fever'], phrase: 'fever', category: 'viral' },
+  { keys: ['body ache', 'body aches', 'myalgia'], phrase: 'body aches', category: 'viral' },
+  { keys: ['headache'], phrase: 'headache', category: 'headache' },
+  { keys: ['dizzy', 'dizziness'], phrase: 'dizziness', category: 'dizziness' },
+  { keys: ['nausea'], phrase: 'nausea', category: 'gi' },
+  { keys: ['vomit', 'vomiting'], phrase: 'vomiting', category: 'gi' },
+  { keys: ['high blood pressure', 'hypertension', 'elevated bp'], phrase: 'elevated blood pressure', category: 'hypertension' },
+  { keys: ['blood pressure', ' bp '], phrase: 'blood pressure concerns', category: 'bp_general' },
+  { keys: ['diabetes'], phrase: 'diabetes', category: 'endocrine' },
+  { keys: ['pain', 'hurt'], phrase: 'pain', category: 'pain' }
+];
+
+const ASSESSMENT_BY_CATEGORY = {
+  cardiac: 'Reported chest pain warrants prompt evaluation to rule out a cardiac cause.',
+  respiratory: 'Respiratory symptoms reported; warrants further evaluation.',
+  viral: 'Symptom pattern is consistent with a viral illness/upper respiratory infection, pending provider confirmation.',
+  headache: 'Headache reported; further evaluation warranted if severe, sudden-onset, or accompanied by other neurological symptoms.',
+  dizziness: 'Dizziness reported; further evaluation may be warranted.',
+  gi: 'Gastrointestinal symptoms reported.',
+  hypertension: 'Hypertension noted; blood pressure management indicated.',
+  bp_general: 'Blood pressure concern reported; vitals to be reviewed and hypertension evaluated if elevated.',
+  endocrine: 'Diabetes reported; glycemic control to be reviewed.',
+  pain: 'Pain reported; further characterization needed to guide management.'
+};
+
+const PLAN_BY_CATEGORY = {
+  cardiac: 'Obtain EKG and cardiac workup as indicated; consider urgent referral if symptoms are acute or severe.',
+  respiratory: 'Assess respiratory status; consider pulmonary evaluation if symptoms persist or worsen.',
+  viral: 'Recommend rest, fluids, and OTC symptomatic care (analgesics/antipyretics/decongestants as appropriate).',
+  headache: 'Recommend analgesics (e.g. acetaminophen/ibuprofen) as appropriate; reassess if headache is severe, sudden-onset, or worsening.',
+  dizziness: 'Evaluate for underlying cause (e.g. orthostatic hypotension, inner ear); advise caution with activities requiring balance until resolved.',
+  gi: 'Maintain hydration; antiemetic as needed; reassess if symptoms persist beyond 48 hours.',
+  hypertension: 'Monitor blood pressure; consider antihypertensive therapy per provider assessment.',
+  bp_general: 'Check and document blood pressure; evaluate for hypertension if elevated.',
+  endocrine: 'Monitor blood glucose; review current diabetes management plan.',
+  pain: 'Analgesics as appropriate; identify pain source for targeted treatment.'
+};
+
+function joinWithAnd(items) {
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return items[0] + ' and ' + items[1];
+  return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
+}
+
 // ── Generate SOAP ──
 function generateSOAP(transcript, visitId, source) {
   const date = new Date().toISOString().split('T')[0];
@@ -200,8 +253,6 @@ function generateSOAP(transcript, visitId, source) {
 
   const lower = transcript.toLowerCase();
 
-  const hasHypertension = lower.includes('high blood pressure') || lower.includes('hypertension') || lower.includes('elevated bp');
-
   let patientName = '';
   const nameIdx = lower.indexOf('patient name is');
   if (nameIdx !== -1) {
@@ -210,41 +261,58 @@ function generateSOAP(transcript, visitId, source) {
     if (nameCapture) patientName = nameCapture[1].trim();
   }
 
+  const foundPhrases = [];
+  const foundCategories = [];
+  const matchedKeys = [];
+  CLINICAL_FINDINGS.forEach(function (finding) {
+    var alreadyCovered = finding.keys.some(function (key) { return matchedKeys.indexOf(key) !== -1; });
+    var isMatch = !alreadyCovered && finding.keys.some(function (key) { return lower.includes(key); });
+    if (isMatch) {
+      foundPhrases.push(finding.phrase);
+      foundCategories.push(finding.category);
+      matchedKeys.push.apply(matchedKeys, finding.keys);
+    }
+  });
+  // A confirmed 'hypertension' match makes the vaguer 'bp_general' redundant.
+  if (foundCategories.indexOf('hypertension') !== -1) {
+    var bpGeneralIdx = foundCategories.indexOf('bp_general');
+    if (bpGeneralIdx !== -1) {
+      foundCategories.splice(bpGeneralIdx, 1);
+      foundPhrases.splice(bpGeneralIdx, 1);
+    }
+  }
+
   let subjective = '';
   if (patientName) subjective += 'Patient name: ' + patientName + '. ';
-
-  let matchedSymptom = false;
-  if (lower.includes('pain') || lower.includes('hurt')) { subjective += 'Patient reports pain. '; matchedSymptom = true; }
-  if (lower.includes('headache')) { subjective += 'Patient reports headache. '; matchedSymptom = true; }
-  if (lower.includes('fever')) { subjective += 'Patient reports fever. '; matchedSymptom = true; }
-  if (lower.includes('cough')) { subjective += 'Patient reports cough. '; matchedSymptom = true; }
-  if (lower.includes('nausea')) { subjective += 'Patient reports nausea. '; matchedSymptom = true; }
-  if (hasHypertension) { subjective += 'Patient reports high blood pressure. '; matchedSymptom = true; }
-  if (lower.includes('diabetes')) { subjective += 'Patient reports diabetes. '; matchedSymptom = true; }
-  if (lower.includes('shortness of breath') || lower.includes('breathing')) { subjective += 'Patient reports shortness of breath. '; matchedSymptom = true; }
-  if (lower.includes('dizzy') || lower.includes('dizziness')) { subjective += 'Patient reports dizziness. '; matchedSymptom = true; }
-  if (!matchedSymptom) subjective += 'Patient presents with concerns as documented in transcript: "' + transcript + '"';
+  subjective += foundPhrases.length
+    ? 'Patient reports ' + joinWithAnd(foundPhrases) + '. '
+    : 'Patient presents with concerns as documented in transcript. ';
+  subjective += 'Transcript: "' + transcript + '"';
   subjective = subjective.trim();
 
-  let objective = 'Physical examination performed. ';
-  if (lower.includes('blood pressure') || lower.includes('bp')) objective += 'Vital signs reviewed. ';
-  if (lower.includes('heart') || lower.includes('lungs')) objective += 'Cardiopulmonary assessment completed. ';
+  let objective = 'Physical exam and vital signs to be confirmed by provider; not directly captured via voice transcription. ';
+  if (lower.includes('blood pressure') || lower.includes(' bp ')) objective += 'Blood pressure was discussed and should be documented from the visit. ';
+  if (lower.includes('heart') || lower.includes('lungs') || foundCategories.indexOf('respiratory') !== -1 || foundCategories.indexOf('cardiac') !== -1) {
+    objective += 'Cardiopulmonary exam indicated given reported symptoms. ';
+  }
 
-  let assessment = 'Assessment based on clinical presentation and documented findings.';
-  if (lower.includes('viral') || lower.includes('infection')) assessment = 'Likely viral illness. ';
-  if (lower.includes('chronic')) assessment = 'Chronic condition management. ';
-  if (hasHypertension) assessment = 'Hypertension noted; blood pressure management indicated. ';
+  const uniqueCategories = foundCategories.filter(function (c, i) { return foundCategories.indexOf(c) === i; });
+  const assessment = uniqueCategories.length
+    ? uniqueCategories.map(function (c) { return ASSESSMENT_BY_CATEGORY[c]; }).join(' ')
+    : 'Assessment based on clinical presentation and documented findings; pending provider review.';
 
-  let plan = '1. Continue current management\n2. Follow up as needed\n3. Patient education provided';
-  if (lower.includes('prescription') || lower.includes('medication')) plan += '\n4. Prescription sent to pharmacy';
-  if (lower.includes('referral')) plan += '\n5. Referral placed';
-  if (lower.includes('lab') || lower.includes('blood work')) plan += '\n6. Labs ordered';
-  if (hasHypertension) plan += '\n7. Monitor blood pressure; consider antihypertensive therapy';
+  const planItems = uniqueCategories.map(function (c) { return PLAN_BY_CATEGORY[c]; });
+  if (lower.includes('prescription') || lower.includes('medication')) planItems.push('Prescription sent to pharmacy.');
+  if (lower.includes('referral')) planItems.push('Referral placed.');
+  if (lower.includes('lab') || lower.includes('blood work')) planItems.push('Labs ordered.');
+  planItems.push('Follow up as needed.');
+  planItems.push('Patient education provided regarding reported symptoms.');
+  const plan = planItems.map(function (item, i) { return (i + 1) + '. ' + item; }).join('\n');
 
   return {
-    Subjective: subjective.trim(),
+    Subjective: subjective,
     Objective: objective.trim(),
-    Assessment: assessment.trim(),
+    Assessment: assessment,
     Plan: plan,
     transcript: transcript,
     mode: source || 'generated',
