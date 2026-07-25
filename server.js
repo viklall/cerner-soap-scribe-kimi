@@ -15,6 +15,8 @@ const hasCloudflare = !!CF_ACCOUNT_ID && !!CF_API_TOKEN;
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const sessions = new Map();
+let lastTranscriptionError = null;
+let lastTranscriptionResult = null;
 
 function uuidv4() {
   return crypto.randomUUID();
@@ -118,18 +120,20 @@ function serveStatic(reqPath, res) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-// ── Cloudflare Transcription (using only Node.js built-ins) ──
+// ── Cloudflare Transcription ──
 async function transcribeWithCloudflare(audioBuffer) {
   return new Promise((resolve, reject) => {
     const base64Audio = audioBuffer.toString('base64');
     const postData = JSON.stringify({ audio: base64Audio });
 
+    console.log('[Cloudflare] Sending ' + audioBuffer.length + ' bytes (' + base64Audio.length + ' base64 chars)');
+
     const options = {
       hostname: 'api.cloudflare.com',
-      path: `/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/openai/whisper`,
+      path: '/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/run/@cf/openai/whisper',
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${CF_API_TOKEN}`,
+        'Authorization': 'Bearer ' + CF_API_TOKEN,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(postData)
       },
@@ -140,27 +144,39 @@ async function transcribeWithCloudflare(audioBuffer) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
+        console.log('[Cloudflare] Response status: ' + res.statusCode);
+        console.log('[Cloudflare] Response body: ' + data.slice(0, 500));
         try {
           const json = JSON.parse(data);
           if (!json.success) {
-            reject(new Error(json.errors?.[0]?.message || 'Cloudflare transcription failed'));
+            const errMsg = json.errors?.[0]?.message || 'Cloudflare transcription failed';
+            console.error('[Cloudflare] API error: ' + errMsg);
+            reject(new Error(errMsg));
           } else {
-            resolve(json.result?.text || '');
+            const text = json.result?.text || '';
+            console.log('[Cloudflare] Transcript: ' + text.slice(0, 100) + '...');
+            resolve(text);
           }
         } catch (e) {
-          reject(new Error('Invalid Cloudflare response: ' + data.slice(0, 200)));
+          reject(new Error('Invalid response: ' + data.slice(0, 200)));
         }
       });
     });
 
-    req.on('error', reject);
-    req.on('timeout', () => reject(new Error('Cloudflare request timeout')));
+    req.on('error', (err) => {
+      console.error('[Cloudflare] Request error: ' + err.message);
+      reject(err);
+    });
+    req.on('timeout', () => {
+      console.error('[Cloudflare] Request timeout');
+      reject(new Error('Cloudflare request timeout'));
+    });
     req.write(postData);
     req.end();
   });
 }
 
-// ── Generate SOAP from transcript ──
+// ── Generate SOAP ──
 function generateSOAP(transcript, visitId, source) {
   const date = new Date().toISOString().split('T')[0];
 
@@ -218,7 +234,39 @@ routes['GET /api/health'] = async (req, res) => {
     timestamp: new Date().toISOString(),
     mockMode: MOCK_MODE,
     cloudflareConfigured: hasCloudflare,
+    cloudflareAccountId: CF_ACCOUNT_ID ? CF_ACCOUNT_ID.slice(0, 8) + '...' : null,
     openaiConfigured: !!process.env.OPENAI_API_KEY
+  };
+};
+
+// ── DEBUG: Test Cloudflare connection ──
+routes['GET /api/test-cloudflare'] = async (req, res) => {
+  if (!hasCloudflare) {
+    return { error: 'Cloudflare not configured', hint: 'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN' };
+  }
+
+  // Send a tiny silent audio test (1 second of silence as base64)
+  const silentWav = Buffer.from('UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=', 'base64');
+
+  try {
+    const result = await transcribeWithCloudflare(silentWav);
+    return { success: true, transcript: result, message: 'Cloudflare connection works' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+// ── DEBUG: Last transcription log ──
+routes['GET /api/debug'] = async (req, res) => {
+  return {
+    cloudflareConfigured: hasCloudflare,
+    lastError: lastTranscriptionError,
+    lastResult: lastTranscriptionResult,
+    env: {
+      accountIdSet: !!CF_ACCOUNT_ID,
+      tokenSet: !!CF_API_TOKEN,
+      accountIdPrefix: CF_ACCOUNT_ID ? CF_ACCOUNT_ID.slice(0, 8) : null
+    }
   };
 };
 
@@ -248,24 +296,25 @@ routes['POST /api/visits'] = async (req, res) => {
     return { error: 'No audio file uploaded' };
   }
 
-  const fileName = visitId + '-' + audioPart.filename;
-  const filePath = path.join(UPLOAD_DIR, fileName);
-  fs.writeFileSync(filePath, audioPart.data);
-
-  console.log('[' + visitId + '] Received audio: ' + audioPart.filename + ' (' + audioPart.data.length + ' bytes)');
+  console.log('[' + visitId + '] Audio: ' + audioPart.filename + ' (' + audioPart.data.length + ' bytes)');
+  console.log('[' + visitId + '] Cloudflare configured: ' + hasCloudflare);
 
   let transcript = transcriptPart ? transcriptPart.data.toString() : null;
   let source = 'browser-speech';
+  let cloudflareError = null;
 
-  // Try Cloudflare Whisper if configured
+  // Try Cloudflare Whisper
   if (!transcript && hasCloudflare) {
     try {
-      console.log('[' + visitId + '] Sending to Cloudflare Whisper...');
+      console.log('[' + visitId + '] Calling Cloudflare Whisper...');
       transcript = await transcribeWithCloudflare(audioPart.data);
       source = 'cloudflare-whisper';
-      console.log('[' + visitId + '] Cloudflare transcript: ' + transcript.length + ' chars');
+      lastTranscriptionResult = { visitId, transcript: transcript.slice(0, 100), source };
+      console.log('[' + visitId + '] SUCCESS: ' + transcript.length + ' chars');
     } catch (err) {
-      console.error('[' + visitId + '] Cloudflare failed: ' + err.message);
+      console.error('[' + visitId + '] Cloudflare FAILED: ' + err.message);
+      cloudflareError = err.message;
+      lastTranscriptionError = { visitId, error: err.message, time: new Date().toISOString() };
     }
   }
 
@@ -276,9 +325,9 @@ routes['POST /api/visits'] = async (req, res) => {
     soap: soap,
     fileName: audioPart.filename,
     cloudflareConfigured: hasCloudflare,
-    openaiConfigured: !!process.env.OPENAI_API_KEY,
+    cloudflareError: cloudflareError,
     source: source,
-    hint: hasCloudflare ? null : 'Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for free Whisper transcription'
+    hint: hasCloudflare ? null : 'Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for free Whisper'
   };
 };
 
@@ -498,5 +547,5 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log('Cerner SOAP Scribe running on http://localhost:' + PORT);
   console.log('Mock mode: ' + (MOCK_MODE ? 'ENABLED' : 'disabled'));
-  console.log('Cloudflare: ' + (hasCloudflare ? 'configured' : 'not configured'));
+  console.log('Cloudflare: ' + (hasCloudflare ? 'configured (' + CF_ACCOUNT_ID.slice(0, 8) + '...)' : 'NOT configured'));
 });
