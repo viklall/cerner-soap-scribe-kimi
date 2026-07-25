@@ -43,15 +43,47 @@ function extractDisplayName(transcript) {
   return '';
 }
 
+// The server's visit history file lives on Render's ephemeral disk and is wiped
+// on every redeploy. Mirroring it into localStorage means a redeploy doesn't
+// lose history from this browser, even though the server-side copy is gone.
+const HISTORY_STORAGE_KEY = 'scribeVisitHistory';
+
+function loadLocalHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveLocalHistory(visits) {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(visits.slice(0, 200)));
+  } catch (e) {
+    console.error('Failed to save local visit history:', e);
+  }
+}
+
+function mergeHistories(serverVisits, localVisits) {
+  const byId = new Map();
+  localVisits.forEach((v) => byId.set(v.visitId, v));
+  serverVisits.forEach((v) => byId.set(v.visitId, v));
+  return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
 async function loadVisitHistory() {
+  const localVisits = loadLocalHistory();
   try {
     const res = await fetch('/api/visits/list');
     const data = await res.json();
-    visitHistoryCache = data.visits || [];
-    renderVisitHistory();
+    visitHistoryCache = mergeHistories(data.visits || [], localVisits);
   } catch (e) {
-    console.error('Failed to load visit history:', e);
+    console.error('Failed to load visit history from server, using local cache:', e);
+    visitHistoryCache = localVisits;
   }
+  saveLocalHistory(visitHistoryCache);
+  renderVisitHistory();
 }
 
 function renderVisitHistory() {
