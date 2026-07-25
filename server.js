@@ -149,16 +149,21 @@ async function transcribeWithCloudflare(audioBuffer) {
         console.log('[Cloudflare] Response body: ' + data.slice(0, 500));
         try {
           const json = JSON.parse(data);
+          console.log('[Cloudflare] FULL RESPONSE: ' + JSON.stringify(json).slice(0, 1000));
           if (!json.success) {
-            const errMsg = json.errors?.[0]?.message || 'Cloudflare transcription failed';
+            const errMsg = json.errors?.[0]?.message || JSON.stringify(json.errors) || 'Cloudflare transcription failed';
             console.error('[Cloudflare] API error: ' + errMsg);
             reject(new Error(errMsg));
           } else {
-            const text = json.result?.text || '';
-            console.log('[Cloudflare] Transcript: ' + text.slice(0, 100) + '...');
+            // Cloudflare may return result.text or result.transcript or result.words
+            const result = json.result || {};
+            const text = result.text || result.transcript || (result.words ? result.words.map(w => w.word).join(' ') : '') || '';
+            console.log('[Cloudflare] Extracted text (' + text.length + ' chars): ' + text.slice(0, 100));
             resolve(text);
           }
         } catch (e) {
+          console.error('[Cloudflare] JSON parse error: ' + e.message);
+          console.error('[Cloudflare] Raw response: ' + data.slice(0, 500));
           reject(new Error('Invalid response: ' + data.slice(0, 200)));
         }
       });
