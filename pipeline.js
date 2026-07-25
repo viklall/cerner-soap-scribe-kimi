@@ -12,10 +12,12 @@ const SECRET_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const TRANSCRIPTION_URL = process.env.TRANSCRIPTION_URL;
 
 const hasAwsCreds = ACCESS_KEY && SECRET_KEY && AWS_REGION && S3_BUCKET;
 const hasOpenAI = !!OPENAI_KEY;
 const hasCloudflare = !!CF_ACCOUNT_ID && !!CF_API_TOKEN;
+const hasWorker = !!TRANSCRIPTION_URL;
 
 if (hasAwsCreds) {
   AWS.config.update({ region: AWS_REGION, accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY });
@@ -121,6 +123,21 @@ async function transcribeWithCloudflare(filePath) {
   return response.data.result.text;
 }
 
+// ── Custom Worker Transcription ──
+async function transcribeWithWorker(filePath) {
+  if (!hasWorker) throw new Error('TRANSCRIPTION_URL not configured');
+
+  const audioBuffer = fs.readFileSync(filePath);
+
+  const response = await axios.post(TRANSCRIPTION_URL, audioBuffer, {
+    headers: { 'Content-Type': 'audio/webm' },
+    maxBodyLength: Infinity,
+    timeout: 120000
+  });
+
+  return response.data.transcript;
+}
+
 // ── Upload to S3 ──
 async function uploadToS3(filePath, key) {
   if (!s3) throw new Error('S3 not configured');
@@ -209,7 +226,19 @@ async function process(filePath, visitId, browserTranscript = null) {
     }
   }
 
-  // 2. Try Cloudflare Workers AI (free tier)
+  // 2. Try custom Worker (no API token needed)
+  if (!transcript && hasWorker) {
+    try {
+      console.log(`[${visitId}] Trying transcription Worker...`);
+      transcript = await transcribeWithWorker(filePath);
+      source = 'worker';
+      console.log(`[${visitId}] Worker transcript: ${transcript.length} chars`);
+    } catch (err) {
+      console.error(`[${visitId}] Worker failed: ${err.message}`);
+    }
+  }
+
+  // 3. Try Cloudflare Workers AI (free tier)
   if (!transcript && hasCloudflare) {
     try {
       console.log(`[${visitId}] Trying Cloudflare Workers AI...`);
@@ -221,7 +250,7 @@ async function process(filePath, visitId, browserTranscript = null) {
     }
   }
 
-  // 3. Try OpenAI Whisper
+  // 4. Try OpenAI Whisper
   if (!transcript && hasOpenAI) {
     try {
       console.log(`[${visitId}] Trying OpenAI Whisper...`);
@@ -243,7 +272,7 @@ async function process(filePath, visitId, browserTranscript = null) {
     awsConfigured: hasAwsCreds,
     openaiConfigured: hasOpenAI,
     source,
-    hint: (hasAwsCreds || hasCloudflare || hasOpenAI) ? null : 'Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for free Whisper, or OPENAI_API_KEY for paid Whisper'
+    hint: (hasAwsCreds || hasWorker || hasCloudflare || hasOpenAI) ? null : 'Set TRANSCRIPTION_URL for Worker proxy, CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for direct API, or OPENAI_API_KEY for paid'
   };
 }
 
