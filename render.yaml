@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: cerner-soap-scribe
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: CERNER_CLIENT_ID
+        value: c52afd29-60bd-4ddf-800f-b175bd91be59
+      - key: CERNER_TENANT_ID
+        value: ec2458f2-1e24-41c8-b71b-0e701af7583d
+      - key: CERNER_REDIRECT_URI
+        value: https://cerner-soap-scribe.onrender.com/callback
+      - key: CERNER_MOCK_MODE
+        value: true
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
