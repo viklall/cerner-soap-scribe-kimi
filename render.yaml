@@ -18,13 +18,13 @@ services:
         value: https://cerner-soap-scribe.onrender.com/callback
       - key: CERNER_MOCK_MODE
         value: true
-      - key: AWS_REGION
+      - key: OPENAI_API_KEY
         sync: false
       - key: AWS_ACCESS_KEY_ID
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
-      - key: AWS_S3_BUCKET
+      - key: AWS_REGION
         sync: false
-      - key: OPENAI_API_KEY
+      - key: AWS_S3_BUCKET
         sync: false
