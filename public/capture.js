@@ -27,6 +27,22 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Fallback display label only, when no chart-verified patient name exists -
+// never fed back into the clinical note itself (see generateSOAP on the server,
+// which intentionally never parses identity out of speech).
+function extractDisplayName(transcript) {
+  if (!transcript) return '';
+  const patterns = [/patient'?s? name is\s+/i, /\bname is\s+/i, /this is\s+/i];
+  for (const pat of patterns) {
+    const m = transcript.match(pat);
+    if (!m) continue;
+    const after = transcript.slice(m.index + m[0].length);
+    const nameMatch = after.match(/^([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)*)/);
+    if (nameMatch) return nameMatch[1].trim();
+  }
+  return '';
+}
+
 async function loadVisitHistory() {
   try {
     const res = await fetch('/api/visits/list');
@@ -59,12 +75,19 @@ function renderVisitHistory() {
     btn.onclick = () => loadHistoryItem(v.visitId);
 
     const dateStr = v.createdAt
-      ? new Date(v.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      ? new Date(v.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
       : '';
     const chief = (v.soap && v.soap.Subjective) ? v.soap.Subjective : (v.transcript || '');
 
+    const guessedName = v.patientName ? '' : extractDisplayName(v.transcript);
+    const nameLabel = v.patientName
+      ? escapeHtml(v.patientName)
+      : guessedName
+        ? escapeHtml(guessedName) + ' <span class="text-slate-400 font-normal">(from transcript)</span>'
+        : 'Unknown patient';
+
     btn.innerHTML =
-      '<p class="text-sm font-medium text-slate-700 truncate">' + escapeHtml(v.patientName || 'Unknown patient') + '</p>' +
+      '<p class="text-sm font-medium text-slate-700 truncate">' + nameLabel + '</p>' +
       '<p class="text-xs text-slate-400">' + escapeHtml(dateStr) + '</p>' +
       '<p class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(chief.slice(0, 70)) + '</p>';
 
