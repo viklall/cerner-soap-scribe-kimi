@@ -44,13 +44,31 @@ function generateSOAP(transcript, visitId, source) {
 
   const lower = transcript.toLowerCase();
 
+  const hasHypertension = lower.includes('high blood pressure') || lower.includes('hypertension') || lower.includes('elevated bp');
+
+  let patientName = '';
+  const nameIdx = lower.indexOf('patient name is');
+  if (nameIdx !== -1) {
+    const afterName = transcript.slice(nameIdx + 'patient name is'.length);
+    const nameCapture = afterName.match(/^\s*((?:[A-Z][A-Za-z'-]*\s*)+)/);
+    if (nameCapture) patientName = nameCapture[1].trim();
+  }
+
   let subjective = '';
-  if (lower.includes('pain') || lower.includes('hurt')) subjective += 'Patient reports pain. ';
-  if (lower.includes('headache')) subjective += 'Patient reports headache. ';
-  if (lower.includes('fever')) subjective += 'Patient reports fever. ';
-  if (lower.includes('cough')) subjective += 'Patient reports cough. ';
-  if (lower.includes('nausea')) subjective += 'Patient reports nausea. ';
-  if (!subjective) subjective = 'Patient presents with concerns as documented in transcript.';
+  if (patientName) subjective += `Patient name: ${patientName}. `;
+
+  let matchedSymptom = false;
+  if (lower.includes('pain') || lower.includes('hurt')) { subjective += 'Patient reports pain. '; matchedSymptom = true; }
+  if (lower.includes('headache')) { subjective += 'Patient reports headache. '; matchedSymptom = true; }
+  if (lower.includes('fever')) { subjective += 'Patient reports fever. '; matchedSymptom = true; }
+  if (lower.includes('cough')) { subjective += 'Patient reports cough. '; matchedSymptom = true; }
+  if (lower.includes('nausea')) { subjective += 'Patient reports nausea. '; matchedSymptom = true; }
+  if (hasHypertension) { subjective += 'Patient reports high blood pressure. '; matchedSymptom = true; }
+  if (lower.includes('diabetes')) { subjective += 'Patient reports diabetes. '; matchedSymptom = true; }
+  if (lower.includes('shortness of breath') || lower.includes('breathing')) { subjective += 'Patient reports shortness of breath. '; matchedSymptom = true; }
+  if (lower.includes('dizzy') || lower.includes('dizziness')) { subjective += 'Patient reports dizziness. '; matchedSymptom = true; }
+  if (!matchedSymptom) subjective += `Patient presents with concerns as documented in transcript: "${transcript}"`;
+  subjective = subjective.trim();
 
   let objective = 'Physical examination performed. ';
   if (lower.includes('blood pressure') || lower.includes('bp')) objective += 'Vital signs reviewed. ';
@@ -59,11 +77,13 @@ function generateSOAP(transcript, visitId, source) {
   let assessment = 'Assessment based on clinical presentation and documented findings.';
   if (lower.includes('viral') || lower.includes('infection')) assessment = 'Likely viral illness. ';
   if (lower.includes('chronic')) assessment = 'Chronic condition management. ';
+  if (hasHypertension) assessment = 'Hypertension noted; blood pressure management indicated. ';
 
   let plan = '1. Continue current management\n2. Follow up as needed\n3. Patient education provided';
   if (lower.includes('prescription') || lower.includes('medication')) plan += '\n4. Prescription sent to pharmacy';
   if (lower.includes('referral')) plan += '\n5. Referral placed';
   if (lower.includes('lab') || lower.includes('blood work')) plan += '\n6. Labs ordered';
+  if (hasHypertension) plan += '\n7. Monitor blood pressure; consider antihypertensive therapy';
 
   return {
     Subjective: subjective.trim(),

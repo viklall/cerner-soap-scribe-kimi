@@ -307,6 +307,9 @@ function displaySOAP(soap, source, hint) {
   } else if (source === 'browser-speech') {
     modeBadge.textContent = 'Browser Speech';
     modeBadge.className = 'text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-700 font-medium';
+  } else if (source === 'worker' || source === 'cloudflare-whisper') {
+    modeBadge.textContent = 'Cloudflare Whisper';
+    modeBadge.className = 'text-xs px-2 py-1 rounded bg-orange-100 text-orange-700 font-medium';
   } else {
     modeBadge.textContent = 'Stub Mode';
     modeBadge.className = 'text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium';
