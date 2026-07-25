@@ -33,37 +33,43 @@ CERNER_MOCK_MODE=true npm start
 
 | Backend | How to Enable | Cost | Speed | Quality |
 |---------|--------------|------|-------|---------|
-| **Browser Speech** | Nothing — works in Chrome/Edge | Free | Real-time | Good |
-| **OpenAI Whisper** | Add `OPENAI_API_KEY` to env | ~$0.006/min | ~5 sec | Excellent |
-| **AWS HealthScribe** | Add AWS keys + S3 + IAM role | ~$0.05/min | ~1-2 min | Best (structured SOAP) |
-| **Stub** | Default when nothing else configured | Free | Instant | Placeholder |
+| **Cloudflare Workers AI** | Free Cloudflare account + API token | **Free** (10K Neurons/day) | ~5 sec | Excellent |
+| **OpenAI Whisper** | `OPENAI_API_KEY` | ~$0.006/min | ~5 sec | Excellent |
+| **AWS HealthScribe** | AWS keys + S3 + IAM role | ~$0.05/min | ~1-2 min | Best (structured SOAP) |
+| **Browser Speech** | Nothing — Chrome/Edge only | Free | Real-time | Good |
+| **Stub** | Default fallback | Free | Instant | Placeholder |
 
-Pipeline tries: HealthScribe → Whisper → Browser Speech → Stub.
+Pipeline tries: HealthScribe → Cloudflare → OpenAI → Browser Speech → Stub.
 
 ## Add Real Transcription
 
-### OpenAI Whisper (Recommended)
+### Cloudflare Workers AI (Free — Recommended)
 
-1. Get an API key: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Add to your environment:
+1. **Create free Cloudflare account:** [dash.cloudflare.com](https://dash.cloudflare.com/sign-up)
+2. **Get Account ID:** In the Cloudflare dashboard, look at the right sidebar — copy the Account ID
+3. **Create API Token:**
+   - Go to **My Profile** (top right) → **API Tokens** → **Create Token**
+   - Use the **Workers AI** template
+   - Leave everything default, click **Continue to Summary** → **Create Token**
+   - Copy the token
+4. **Add to your app:**
    ```bash
-   export OPENAI_API_KEY=sk-your-key
+   export CLOUDFLARE_ACCOUNT_ID=your_account_id
+   export CLOUDFLARE_API_TOKEN=your_api_token
    npm start
    ```
-   Or in Render dashboard → Environment → Add `OPENAI_API_KEY`
+   Or in Render dashboard → Environment → add both variables
+
+**Free tier:** 10,000 Neurons/day = roughly 20 minutes of audio. Beyond that: $0.0005/min (3 cents per hour).
+
+### OpenAI Whisper (Paid)
+
+1. Get API key: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Add `OPENAI_API_KEY=sk-...` to environment
 
 ### AWS HealthScribe (Enterprise)
 
 Requires AWS account, S3 bucket, IAM role with HealthScribe permissions.
-
-```bash
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-export AWS_REGION=us-east-1
-export AWS_S3_BUCKET=...
-export AWS_ROLE_ARN=...
-npm start
-```
 
 ## Real Cerner OAuth
 
@@ -81,7 +87,9 @@ Already registered app:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | No | Server port (default 8080) |
-| `OPENAI_API_KEY` | For Whisper | OpenAI API key |
+| `CLOUDFLARE_ACCOUNT_ID` | For Cloudflare | Cloudflare account ID |
+| `CLOUDFLARE_API_TOKEN` | For Cloudflare | Workers AI API token |
+| `OPENAI_API_KEY` | For OpenAI | OpenAI API key |
 | `AWS_ACCESS_KEY_ID` | For HealthScribe | AWS key |
 | `AWS_SECRET_ACCESS_KEY` | For HealthScribe | AWS secret |
 | `AWS_REGION` | For HealthScribe | AWS region |
@@ -103,15 +111,6 @@ Already registered app:
 | GET | `/api/cerner/status` | Connection status |
 | GET | `/api/patient` | Patient demographics |
 | POST | `/api/writeback` | Push SOAP to Cerner |
-
-## Local Development with Real Dependencies
-
-The repo includes a full Express server (`server-full.js` pattern in git history) with all npm packages. The current `server.js` is zero-dependency for easy deployment. To use the full version with real FHIR calls:
-
-```bash
-npm install
-# Use the full server (requires all deps installed)
-```
 
 ## License
 
