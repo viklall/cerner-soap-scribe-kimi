@@ -10,13 +10,81 @@ let transcriptBuffer = '';
 let currentPatient = null;
 let currentSource = null;
 let currentHint = null;
+let visitHistoryCache = [];
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   checkBackendStatus();
   checkCernerStatus();
   initSpeechRecognition();
+  loadVisitHistory();
 });
+
+// ── Visit History ──
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+async function loadVisitHistory() {
+  try {
+    const res = await fetch('/api/visits/list');
+    const data = await res.json();
+    visitHistoryCache = data.visits || [];
+    renderVisitHistory();
+  } catch (e) {
+    console.error('Failed to load visit history:', e);
+  }
+}
+
+function renderVisitHistory() {
+  const list = document.getElementById('visit-history-list');
+  list.innerHTML = '';
+
+  if (!visitHistoryCache.length) {
+    const empty = document.createElement('p');
+    empty.id = 'visit-history-empty';
+    empty.className = 'text-sm text-slate-400';
+    empty.textContent = 'No visits yet';
+    list.appendChild(empty);
+    return;
+  }
+
+  visitHistoryCache.forEach((v) => {
+    const btn = document.createElement('button');
+    const isActive = v.visitId === currentVisitId;
+    btn.className = 'w-full text-left p-2 rounded-lg border transition-colors ' +
+      (isActive ? 'bg-blue-50 border-blue-200' : 'border-transparent hover:bg-slate-50 hover:border-slate-200');
+    btn.onclick = () => loadHistoryItem(v.visitId);
+
+    const dateStr = v.createdAt
+      ? new Date(v.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const chief = (v.soap && v.soap.Subjective) ? v.soap.Subjective : (v.transcript || '');
+
+    btn.innerHTML =
+      '<p class="text-sm font-medium text-slate-700 truncate">' + escapeHtml(v.patientName || 'Unknown patient') + '</p>' +
+      '<p class="text-xs text-slate-400">' + escapeHtml(dateStr) + '</p>' +
+      '<p class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(chief.slice(0, 70)) + '</p>';
+
+    list.appendChild(btn);
+  });
+}
+
+function loadHistoryItem(visitId) {
+  const v = visitHistoryCache.find((x) => x.visitId === visitId);
+  if (!v) return;
+
+  currentVisitId = v.visitId;
+  currentSoap = v.soap;
+  currentSource = v.source;
+
+  document.getElementById('review-section').classList.add('hidden');
+  displaySOAP(v.soap, v.source, null);
+  renderVisitHistory();
+  document.getElementById('soap-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 // ── Backend Status ──
 async function checkBackendStatus() {
@@ -335,6 +403,7 @@ async function generateSoapFromTranscript() {
 
     currentSoap = data.soap;
     displaySOAP(data.soap, data.source, currentHint);
+    loadVisitHistory();
 
   } catch (err) {
     alert('SOAP generation failed: ' + err.message);

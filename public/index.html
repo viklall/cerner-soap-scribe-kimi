@@ -21,7 +21,7 @@
   </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
-  <div class="max-w-4xl mx-auto px-4 py-8">
+  <div class="max-w-6xl mx-auto px-4 py-8">
 
     <!-- Header -->
     <header class="mb-8">
@@ -40,6 +40,21 @@
         </div>
       </div>
     </header>
+
+    <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+      <!-- Visit History Sidebar -->
+      <aside class="w-full lg:w-72 flex-shrink-0">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 lg:sticky lg:top-8">
+          <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Visit History</h2>
+          <div id="visit-history-list" class="space-y-1 max-h-[75vh] overflow-y-auto">
+            <p id="visit-history-empty" class="text-sm text-slate-400">No visits yet</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="flex-1 min-w-0 w-full">
 
     <!-- Patient Info Panel (appears when connected) -->
     <div id="patient-panel" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6 hidden">
@@ -182,6 +197,9 @@
       <div class="inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
       <p class="text-slate-600">Processing audio through pipeline...</p>
       <p id="loading-detail" class="text-slate-400 text-sm mt-1">This may take a moment</p>
+    </div>
+
+      </main>
     </div>
 
   </div>

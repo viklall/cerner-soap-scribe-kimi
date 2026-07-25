@@ -8,6 +8,9 @@ const { URL } = require('url');
 
 const PORT = process.env.PORT || 8080;
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const DATA_DIR = path.join(__dirname, 'data');
+const VISITS_FILE = path.join(DATA_DIR, 'visits.json');
+const MAX_VISIT_HISTORY = 200;
 const MOCK_MODE = process.env.CERNER_MOCK_MODE === 'true';
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
@@ -18,6 +21,28 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const sessions = new Map();
 let lastTranscriptionError = null;
 let lastTranscriptionResult = null;
+
+// Visit history: persisted to disk so it survives a server restart, though NOT
+// a fresh deploy (Render's free tier disk is ephemeral across deploys).
+let visitHistory = [];
+try {
+  if (fs.existsSync(VISITS_FILE)) {
+    visitHistory = JSON.parse(fs.readFileSync(VISITS_FILE, 'utf8'));
+  }
+} catch (e) {
+  console.error('Failed to load visit history: ' + e.message);
+}
+
+function saveVisitRecord(record) {
+  visitHistory.unshift(record);
+  visitHistory = visitHistory.slice(0, MAX_VISIT_HISTORY);
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(VISITS_FILE, JSON.stringify(visitHistory));
+  } catch (e) {
+    console.error('Failed to persist visit history: ' + e.message);
+  }
+}
 
 function uuidv4() {
   return crypto.randomUUID();
@@ -509,11 +534,24 @@ routes['POST /api/soap'] = async (req, res) => {
 
   const soap = generateSOAP(transcript, visitId, source, patientName);
 
+  saveVisitRecord({
+    visitId: visitId,
+    patientName: patientName,
+    transcript: transcript,
+    soap: soap,
+    source: source,
+    createdAt: new Date().toISOString()
+  });
+
   return {
     visitId: visitId,
     soap: soap,
     source: source
   };
+};
+
+routes['GET /api/visits/list'] = async (req, res) => {
+  return { visits: visitHistory };
 };
 
 routes['GET /auth/cerner/login'] = async (req, res) => {
