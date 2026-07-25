@@ -33,43 +33,66 @@ CERNER_MOCK_MODE=true npm start
 
 | Backend | How to Enable | Cost | Speed | Quality |
 |---------|--------------|------|-------|---------|
-| **Cloudflare Workers AI** | Free Cloudflare account + API token | **Free** (10K Neurons/day) | ~5 sec | Excellent |
+| **Cloudflare Worker** | Deploy included worker | **Free** (10K Neurons/day) | ~5 sec | Excellent |
+| **Cloudflare REST API** | Account ID + API token | **Free** (10K Neurons/day) | ~5 sec | Excellent |
 | **OpenAI Whisper** | `OPENAI_API_KEY` | ~$0.006/min | ~5 sec | Excellent |
 | **AWS HealthScribe** | AWS keys + S3 + IAM role | ~$0.05/min | ~1-2 min | Best (structured SOAP) |
 | **Browser Speech** | Nothing — Chrome/Edge only | Free | Real-time | Good |
 | **Stub** | Default fallback | Free | Instant | Placeholder |
 
-Pipeline tries: HealthScribe → Cloudflare → OpenAI → Browser Speech → Stub.
+Pipeline tries: HealthScribe → Worker → Cloudflare → OpenAI → Browser Speech → Stub.
 
-## Add Real Transcription
+## Add Real Transcription (Free)
 
-### Cloudflare Workers AI (Free — Recommended)
+### Option A: Cloudflare Worker (Recommended — No API Token)
 
-1. **Create free Cloudflare account:** [dash.cloudflare.com](https://dash.cloudflare.com/sign-up)
-2. **Get Account ID:** In the Cloudflare dashboard, look at the right sidebar — copy the Account ID
-3. **Create API Token:**
-   - Go to **My Profile** (top right) → **API Tokens** → **Create Token**
-   - Use the **Workers AI** template
-   - Leave everything default, click **Continue to Summary** → **Create Token**
-   - Copy the token
-4. **Add to your app:**
+The repo includes a ready-to-deploy Cloudflare Worker that handles transcription. No API token needed — it uses Workers AI binding.
+
+**1. Deploy the Worker:**
+
+```bash
+cd cloudflare-worker
+npm install
+npx wrangler deploy
+```
+
+You'll get a URL like: `https://whisper-transcriber.YOUR_SUBDOMAIN.workers.dev`
+
+**2. Add the URL to your app:**
+
+In Render dashboard → Environment:
+```
+TRANSCRIPTION_URL=https://whisper-transcriber.YOUR_SUBDOMAIN.workers.dev
+```
+
+Or locally:
+```bash
+export TRANSCRIPTION_URL=https://whisper-transcriber.YOUR_SUBDOMAIN.workers.dev
+export CERNER_MOCK_MODE=true
+node server.js
+```
+
+**Free tier:** 10,000 Neurons/day = ~20 minutes of audio.
+
+### Option B: Cloudflare REST API (Also Free)
+
+If you don't want to deploy a Worker, use the REST API directly.
+
+1. **Get Account ID:** [dash.cloudflare.com](https://dash.cloudflare.com) → right sidebar
+2. **Create API Token:** My Profile → API Tokens → Create Token → Workers AI template
+3. **Add to app:**
    ```bash
    export CLOUDFLARE_ACCOUNT_ID=your_account_id
-   export CLOUDFLARE_API_TOKEN=your_api_token
+   export CLOUDFLARE_API_TOKEN=your_token
    npm start
    ```
-   Or in Render dashboard → Environment → add both variables
 
-**Free tier:** 10,000 Neurons/day = roughly 20 minutes of audio. Beyond that: $0.0005/min (3 cents per hour).
+### Option C: OpenAI Whisper (Paid)
 
-### OpenAI Whisper (Paid)
-
-1. Get API key: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Add `OPENAI_API_KEY=sk-...` to environment
-
-### AWS HealthScribe (Enterprise)
-
-Requires AWS account, S3 bucket, IAM role with HealthScribe permissions.
+```bash
+export OPENAI_API_KEY=sk-your-key
+npm start
+```
 
 ## Real Cerner OAuth
 
@@ -87,8 +110,9 @@ Already registered app:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | No | Server port (default 8080) |
-| `CLOUDFLARE_ACCOUNT_ID` | For Cloudflare | Cloudflare account ID |
-| `CLOUDFLARE_API_TOKEN` | For Cloudflare | Workers AI API token |
+| `TRANSCRIPTION_URL` | For Worker | Your deployed Worker URL |
+| `CLOUDFLARE_ACCOUNT_ID` | For Cloudflare REST | Cloudflare account ID |
+| `CLOUDFLARE_API_TOKEN` | For Cloudflare REST | Workers AI API token |
 | `OPENAI_API_KEY` | For OpenAI | OpenAI API key |
 | `AWS_ACCESS_KEY_ID` | For HealthScribe | AWS key |
 | `AWS_SECRET_ACCESS_KEY` | For HealthScribe | AWS secret |
