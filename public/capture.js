@@ -32,7 +32,12 @@ function escapeHtml(str) {
 // which intentionally never parses identity out of speech).
 function extractDisplayName(transcript) {
   if (!transcript) return '';
-  const patterns = [/patient'?s? name is\s+/i, /\bname is\s+/i, /this is\s+/i];
+  const patterns = [
+    /patient'?s?\s+named?\s+(?:is\s+)?/i,
+    /\bname is\s+/i,
+    /\bnamed\s+/i,
+    /\bthis is\s+/i
+  ];
   for (const pat of patterns) {
     const m = transcript.match(pat);
     if (!m) continue;
